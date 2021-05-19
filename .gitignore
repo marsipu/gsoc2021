@@ -57,7 +57,7 @@ coverage.xml
 
 # Django stuff:
 *.log
-local_settings.py
+local_settingcurl --remote-name https://raw.githubusercontent.com/mne-tools/mne-python/master/environment.ymls.py
 db.sqlite3
 db.sqlite3-journal
 
@@ -127,3 +127,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# PyCharm Project-Files
+.idea/
