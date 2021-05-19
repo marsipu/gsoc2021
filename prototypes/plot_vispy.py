@@ -1,3 +1,7 @@
+"""
+This is a prototype of a Raw-Plot based on vispy.
+It was originally created by Clemens Brunner (https://github.com/cbrnr).
+"""
 from vispy import gloo
 from vispy import app
 import numpy as np

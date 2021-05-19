@@ -1,3 +1,7 @@
+"""
+This is a prototype of a Raw-Plot based on pyqwt.
+It was originally created by Clemens Brunner (https://github.com/cbrnr).
+"""
 import sys
 import mne
 import numpy as np

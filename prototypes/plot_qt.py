@@ -1,3 +1,7 @@
+"""
+This is a prototype of a Raw-Plot based just on the Plotting-Capabilities of PyQt5/PySide2.
+It was originally created by Clemens Brunner (https://github.com/cbrnr).
+"""
 import sys
 from qtpy.QtWidgets import (QApplication, QGraphicsPathItem, QGraphicsScene,
                             QGraphicsView, QOpenGLWidget)

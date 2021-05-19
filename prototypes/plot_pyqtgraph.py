@@ -1,3 +1,7 @@
+"""
+This is a prototype of a Raw-Plot based on pyqtgraph.
+It was originally created by Clemens Brunner (https://github.com/cbrnr).
+"""
 import sys
 import numpy as np
 from PyQt5.QtWidgets import QApplication
@@ -49,7 +53,7 @@ class RawCurveItem(PlotCurveItem):
                 sourcePtr += len(chunk)
 
                 # reshape chunk to be integral multiple of ds
-     s           chunk = chunk[:(len(chunk)//ds) * ds].reshape(len(chunk)//ds, ds)
+                chunk = chunk[:(len(chunk)//ds) * ds].reshape(len(chunk)//ds, ds)
 
                 # compute max and min
                 chunkMax = chunk.max(axis=1)
