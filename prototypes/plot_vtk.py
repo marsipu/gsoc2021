@@ -1,5 +1,5 @@
 """
-This is a prototype of a Raw-Plot based on pyqtgraph.
+This is a prototype of a Raw-Plot based on vtk.
 It was originally created by Eric Larson(https://github.com/larsoner) here:
 https://gist.github.com/larsoner/7acaeb67f79586975d0b07584a8fc5c9
 """
