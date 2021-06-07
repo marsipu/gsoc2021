@@ -65,11 +65,11 @@ for y in range(data.shape[0]):
 view = BrowserView(scene)
 
 # enable OpenGL
-opengl = QOpenGLWidget()
-fmt = QSurfaceFormat()
-fmt.setSamples(4)  # enable antialiasing with OpenGL
-opengl.setFormat(fmt)
-view.setViewport(opengl)
+# opengl = QOpenGLWidget()
+# fmt = QSurfaceFormat()
+# fmt.setSamples(4)  # enable antialiasing with OpenGL
+# opengl.setFormat(fmt)
+# view.setViewport(opengl)
 
 view.setRenderHint(QPainter.Antialiasing)  # enable antialiasing
 view.resize(1000, 800)
