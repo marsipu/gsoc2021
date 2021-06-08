@@ -8,22 +8,25 @@
 
 ## Functionalities
 ### CustomQt
-- [ ] 1 Line-Plot
 - [ ] Multiple Line-Plots
 - [ ] XY-Axes
+- [ ] Zoom Duration/N-Channels
 - [ ] Vertical Line
+- [ ] Mark Channel
 - [ ] Area Selection
 
 ### PyQtGraph
-- [ ] 1 Line-Plot
 - [ ] Multiple Line-Plots
 - [ ] XY-Axes
+- [ ] Zoom Duration/N-Channels
 - [ ] Vertical Line
+- [ ] Mark Channel
 - [ ] Area Selection
 
 ### VTK
-- [ ] 1 Line-Plot
 - [ ] Multiple Line-Plots
 - [ ] XY-Axes
+- [ ] Zoom Duration/N-Channels
 - [ ] Vertical Line
+- [ ] Mark Channel
 - [ ] Area Selection

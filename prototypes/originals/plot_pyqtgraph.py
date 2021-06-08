@@ -13,7 +13,7 @@ import mne
 class RawCurveItem(PlotCurveItem):
     def __init__(self, raw=None, *args, **kwargs):
         self._raw = raw
-        self.limit = 10000  # maximum number of samples to be plotted
+        self.limit = 1000  # maximum number of samples to be plotted
         super().__init__(*args, **kwargs)
 
     @property
