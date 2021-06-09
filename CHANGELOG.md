@@ -2,7 +2,7 @@
 
 ## Wednesday, 2021-08-09
 - worked on PR #9419 (still left from Community-Bonding)
-- 
+- worked on pyqtgraph-prototype to include all PlotCurveItems in one plot
 
 ## Tuesday, 2021-06-08
 - studied source-code of pyqtgraph (especially downsample-method)

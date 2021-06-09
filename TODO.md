@@ -16,7 +16,7 @@
 - [ ] Area Selection
 
 ### PyQtGraph
-- [ ] Multiple Line-Plots
+- [X] Multiple Line-Plots
 - [ ] XY-Axes
 - [ ] Zoom Duration/N-Channels
 - [ ] Vertical Line
