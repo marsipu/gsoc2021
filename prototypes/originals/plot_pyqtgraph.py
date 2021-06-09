@@ -92,7 +92,7 @@ win.setCentralItem(layout)
 win.show()
 
 plots = []
-for ch in range(4):  # add plots in rows
+for ch in range(100):  # add plots in rows
     p = layout.addPlot(row=ch, col=0, enableMenu=False)
     p.setXRange(0, 2000)
     p.setLimits(xMin=0, xMax=data.shape[1])
@@ -100,7 +100,7 @@ for ch in range(4):  # add plots in rows
     curve.setPen("k")
     p.addItem(curve)
     plots.append(p)
-for ch in range(4 - 1):  # link axes
+for ch in range(100 - 1):  # link axes
     plots[ch].setXLink(plots[ch + 1])
     plots[ch].setYLink(plots[ch + 1])
     plots[ch].getAxis("bottom").setStyle(showValues=False)

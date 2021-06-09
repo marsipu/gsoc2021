@@ -1,6 +1,7 @@
 from functools import partial
+from os.path import isfile
 
-from PyQt5.QtWidgets import QAction, QApplication, QComboBox, QLabel, QMainWindow, QWidget
+from PyQt5.QtWidgets import QAction, QApplication, QComboBox, QLabel, QMainWindow, QMessageBox, QWidget
 
 import mne
 
@@ -17,6 +18,7 @@ class BenchmarkWindow(QMainWindow):
         super().__init__()
 
         self.raw = None
+        self.backend_name = None
         self.load_raw()
 
         self.backend_chosen(0)
@@ -32,8 +34,13 @@ class BenchmarkWindow(QMainWindow):
         if self.raw is None:
             data_path = mne.datasets.sample.data_path()
             raw_fname = data_path + '/MEG/sample/sample_audvis_raw.fif'
-            self.raw = mne.io.read_raw_fif(raw_fname, preload=True)
-            self.raw.filter(1, None, n_jobs=-1)
+            raw_hp_filtered_path = data_path + '/MEG/sample/sample_audvis_1Hz_raw.fif'
+            if isfile(raw_hp_filtered_path):
+                self.raw = mne.io.read_raw(raw_hp_filtered_path)
+            else:
+                self.raw = mne.io.read_raw(raw_fname, preload=True)
+                self.raw.filter(1, None, n_jobs=-1)
+                self.raw.save(raw_hp_filtered_path)
 
     def init_toolbar(self):
         self.toolbar = self.addToolBar('Tools')
@@ -63,5 +70,12 @@ class BenchmarkWindow(QMainWindow):
         self.toolbar.addAction(aincr_nchan)
 
     def backend_chosen(self, idx):
-        new_backend = backends[list(backends.keys())[idx]]
-        self.setCentralWidget(new_backend[0](self.raw, **new_backend[1]))
+        old_backend = self.backend_name
+        self.backend_name = list(backends.keys())[idx]
+        new_backend = backends[self.backend_name]
+        if new_backend[0] is not None:
+            self.setCentralWidget(new_backend[0](self.raw, **new_backend[1]))
+        else:
+            QMessageBox.warning(self, 'Not implemented!',
+                                f'{self.backend_name} is not implemented yet!')
+            self.backend_cmbx.setCurrentText(old_backend)
