@@ -1,5 +1,9 @@
 # Week 1
 
+## Wednesday, 2021-08-09
+- worked on PR #9419 (still left from Community-Bonding)
+- 
+
 ## Tuesday, 2021-06-08
 - studied source-code of pyqtgraph (especially downsample-method)
 - started benchmark_utils.py to unify testing of multiple backends
