@@ -115,7 +115,7 @@ class RawCurveItem(PlotCurveItem):
             visible_y = visible[:targetPtr]
             scale = ds * 0.5
         self.setData(visible_x, visible_y)
-        self.setPos(start / self.sfreq, self.ypos)
+        self.setPos(0, self.ypos)
         self.resetTransform()
         self.scale(scale, 1)
 
