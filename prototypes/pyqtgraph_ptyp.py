@@ -129,7 +129,7 @@ class PyQtGraphPtyp(PlotWidget):
         self.p_item_type = p_item_type
         self.pg_ds = pg_ds
         self.custom_ds = custom_ds
-        self.vspace = 20  # points between channels
+        self.vspace = 40  # points between channels
         self.lines = list()
 
         self.data, self.times = self.raw.get_data(return_times=True)
@@ -153,7 +153,9 @@ class PyQtGraphPtyp(PlotWidget):
         self.addItem(item)
 
     def remove_plot_item(self, idx):
+        line = self.lines[idx]
         self.removeItem(self.lines[idx])
+        self.lines.remove(line)
 
     def change_duration(self, factor):
         self.duration += factor
@@ -162,7 +164,9 @@ class PyQtGraphPtyp(PlotWidget):
 
     def change_nchan(self, factor):
         self.nchan += factor
-        if factor > 0 and self.nchan != len(self.data):
+        if factor > 0 and self.nchan < self.data.shape[0]:
             self.add_plot_item(self.nchan - 1, self.data[self.nchan])
-        elif self.nchan != 0:
+            self.setYRange(0, self.nchan * self.vspace)
+        elif factor < 0 and self.nchan != 0:
             self.remove_plot_item(self.nchan)
+            self.setYRange(0, self.nchan * self.vspace)
