@@ -2,6 +2,7 @@
 
 ## Thursday, 2021-06-10
 - improved pyqtgraph-prototype
+- added first benchmark (hscroll)
 
 ## Wednesday, 2021-06-09
 - worked on PR #9419 (still left from Community-Bonding)
