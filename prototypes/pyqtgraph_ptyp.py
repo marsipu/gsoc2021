@@ -132,10 +132,13 @@ class PyQtGraphPtyp(PlotWidget):
         self.vspace = 40  # points between channels
         self.lines = list()
 
+        self._hscroll_dir = 1
+
         self.data, self.times = self.raw.get_data(return_times=True)
         self.data *= 1e6  # Scale EEG-Data
         self.setXRange(0, duration)
         self.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'])
+        self.setLabel('bottom', 'Time', 's')
         self.setYRange(0, self.nchan * self.vspace)
         for idx, ch_data in enumerate(self.data[:self.nchan]):
             self.add_plot_item(idx, ch_data)
@@ -156,6 +159,17 @@ class PyQtGraphPtyp(PlotWidget):
         line = self.lines[idx]
         self.removeItem(self.lines[idx])
         self.lines.remove(line)
+
+    def infini_hscroll(self, step):
+        left = self.viewRect().left()
+        right = left + self.duration
+        if left + step * self._hscroll_dir <= 0:
+            self._hscroll_dir = 1
+        if right + step * self._hscroll_dir >= self.data.shape[1] / self.raw.info['sfreq']:
+            self._hscroll_dir = -1
+        left += step * self._hscroll_dir
+        right += step * self._hscroll_dir
+        self.setXRange(left, right)
 
     def change_duration(self, factor):
         self.duration += factor
