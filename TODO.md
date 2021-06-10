@@ -17,6 +17,7 @@
 
 ### PyQtGraph
 - [X] Multiple Line-Plots
+- [ ] Compare 1 PlotItem vs multiple PlotItems
 - [ ] XY-Axes
 - [ ] Zoom Duration/N-Channels
 - [ ] Vertical Line

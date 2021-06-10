@@ -13,6 +13,7 @@ backends = {
     "VTK": [None, {}]
 }
 
+
 class BenchmarkWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -41,6 +42,7 @@ class BenchmarkWindow(QMainWindow):
                 self.raw = mne.io.read_raw(raw_fname, preload=True)
                 self.raw.filter(1, None, n_jobs=-1)
                 self.raw.save(raw_hp_filtered_path)
+            self.raw.pick_types(eeg=True)
 
     def init_toolbar(self):
         self.toolbar = self.addToolBar('Tools')
@@ -53,19 +55,19 @@ class BenchmarkWindow(QMainWindow):
         self.backend_cmbx.activated.connect(self.backend_chosen)
         self.toolbar.addWidget(self.backend_cmbx)
 
-        adecr_time = QAction('-Time')
+        adecr_time = QAction('-Time', parent=self)
         adecr_time.triggered.connect(partial(self.centralWidget().change_duration, -1))
         self.toolbar.addAction(adecr_time)
 
-        aincr_time = QAction('+Time')
+        aincr_time = QAction('+Time', parent=self)
         aincr_time.triggered.connect(partial(self.centralWidget().change_duration, 1))
         self.toolbar.addAction(aincr_time)
 
-        adecr_nchan= QAction('+Channels')
+        adecr_nchan= QAction('-Channels', parent=self)
         adecr_nchan.triggered.connect(partial(self.centralWidget().change_nchan, -1))
         self.toolbar.addAction(adecr_nchan)
 
-        aincr_nchan = QAction('+Channels')
+        aincr_nchan = QAction('+Channels', parent=self)
         aincr_nchan.triggered.connect(partial(self.centralWidget().change_nchan, 1))
         self.toolbar.addAction(aincr_nchan)
 

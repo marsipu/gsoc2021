@@ -1,6 +1,9 @@
 # Week 1
 
-## Wednesday, 2021-08-09
+## Thursday, 2021-06-10
+- improved pyqtgraph-prototype
+
+## Wednesday, 2021-06-09
 - worked on PR #9419 (still left from Community-Bonding)
 - worked on pyqtgraph-prototype to include all PlotCurveItems in one plot
 - worked on PR #9444
