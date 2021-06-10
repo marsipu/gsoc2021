@@ -25,6 +25,7 @@
 - [ ] Vertical Line
 - [ ] Mark Channel
 - [ ] Area Selection
+- [ ] Marking Bad Epochs + Autoreject (Bad-Segment with subsegments per channel)
 
 ### VTK
 - [ ] Multiple Line-Plots
