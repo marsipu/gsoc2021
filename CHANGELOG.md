@@ -1,5 +1,9 @@
 # Week 1
 
+## Friday, 2021-06-11
+- studied pyqtgraph source-code (children of QGraphicsItem, QGraphicsView)
+- fixed a few bugs in pyqtgraph-prototype
+
 ## Thursday, 2021-06-10
 - improved pyqtgraph-prototype
 - added first benchmark (hscroll)

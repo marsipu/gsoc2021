@@ -1,5 +1,5 @@
 import numpy as np
-from pyqtgraph import PlotCurveItem, PlotDataItem, PlotWidget
+from pyqtgraph import (PlotCurveItem, PlotDataItem, PlotWidget)
 
 
 class RawDataItem(PlotDataItem):
@@ -9,6 +9,7 @@ class RawDataItem(PlotDataItem):
         self._times = times
         self.ypos = ypos
         self.sfreq = sfreq
+
     @property
     def data(self):
         return self._data
@@ -114,6 +115,10 @@ class RawCurveItem(PlotCurveItem):
 
             visible_y = visible[:targetPtr]
             scale = ds * 0.5
+
+        if len(visible_x) > len(visible_y):
+            visible_x = visible_x[:len(visible_y)]
+
         self.setData(visible_x, visible_y)
         self.setPos(0, self.ypos)
         self.resetTransform()
@@ -121,15 +126,16 @@ class RawCurveItem(PlotCurveItem):
 
 
 class PyQtGraphPtyp(PlotWidget):
-    def __init__(self, raw, duration=20, nchan=30, p_item_type='data', pg_ds='peak', custom_ds=True):
+    def __init__(self, raw, duration=20, nchan=30, p_item_type='curve', pg_ds='subsample', custom_ds=True):
         super().__init__(background='w')
+
         self.raw = raw
         self.duration = duration
         self.nchan = nchan
         self.p_item_type = p_item_type
         self.pg_ds = pg_ds
         self.custom_ds = custom_ds
-        self.vspace = 40  # points between channels
+        self.vspace = 50  # points between channels
         self.lines = list()
 
         self._hscroll_dir = 1
@@ -137,14 +143,14 @@ class PyQtGraphPtyp(PlotWidget):
         self.data, self.times = self.raw.get_data(return_times=True)
         self.data *= 1e6  # Scale EEG-Data
         self.setXRange(0, duration)
-        self.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'])
+        self.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'], yMin=0)
         self.setLabel('bottom', 'Time', 's')
         self.setYRange(0, self.nchan * self.vspace)
         for idx, ch_data in enumerate(self.data[:self.nchan]):
-            self.add_plot_item(idx, ch_data)
+            self.add_line(idx, ch_data)
 
-    def add_plot_item(self, idx, ch_data):
-        ypos = idx * self.vspace
+    def add_line(self, idx, ch_data):
+        ypos = idx * self.vspace + self.vspace
         if self.p_item_type == 'curve':
             item = RawCurveItem(data=ch_data, times=self.times, ypos=ypos, sfreq=self.raw.info['sfreq'],
                                 custom_ds=self.custom_ds)
@@ -179,7 +185,7 @@ class PyQtGraphPtyp(PlotWidget):
     def change_nchan(self, factor):
         self.nchan += factor
         if factor > 0 and self.nchan < self.data.shape[0]:
-            self.add_plot_item(self.nchan - 1, self.data[self.nchan])
+            self.add_line(self.nchan - 1, self.data[self.nchan])
             self.setYRange(0, self.nchan * self.vspace)
         elif factor < 0 and self.nchan != 0:
             self.remove_plot_item(self.nchan)
