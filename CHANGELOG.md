@@ -1,3 +1,10 @@
+# Week 2
+
+## Monday, 2021-06-14
+- add queue-functionality to compare different parameter-settings
+- visualization of benchmark-results with pyqtgraph
+- wrote [blog-entry](https://blogs.python-gsoc.org/en/marsipus-blog/blog-week-1-07-06-12-06/)
+
 # Week 1
 
 ## Friday, 2021-06-11
