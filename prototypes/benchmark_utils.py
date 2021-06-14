@@ -10,7 +10,7 @@ import numpy as np
 from PyQt5.QtCore import QAbstractListModel, QModelIndex, QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
                              QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-                             QMessageBox, QPushButton, QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
+                             QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
 from pyqtgraph import BarGraphItem, ErrorBarItem, LegendItem, PlotWidget, colormap, time
 
 from prototypes.pyqtgraph_ptyp import PyQtGraphPtyp
@@ -192,17 +192,24 @@ class ResultDialog(QDialog):
 
         self.plot_widget = PlotWidget()
         x = np.arange(1, len(self.pw.benchmark_results) + 1)
-        y = np.asarray([np.mean(self.pw.benchmark_results[key]) for key in self.pw.benchmark_results])
-        top = np.asarray([np.std(self.pw.benchmark_results[key]) for key in self.pw.benchmark_results])
-        bottom = top * -1
-        error_item = ErrorBarItem(x=x, y=y, top=top, bottom=bottom, beam=0.5)
-        self.plot_widget.addItem(error_item)
+        height = np.asarray([np.mean(self.pw.benchmark_results[key]) for key in self.pw.benchmark_results])
+        bar_item = BarGraphItem(x=x, height=height, width=0.8)
+        self.plot_widget.addItem(bar_item)
         layout.addWidget(self.plot_widget)
 
+        scroll_area = QScrollArea()
+        scroll_area.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        legend_widget = QWidget()
         legend_layout = QVBoxLayout()
-        for idx, key in enumerate(self.pw.benchmark_results):
-            legend_layout.addWidget(QLabel(f'{idx + 1}: {key}'))
-        layout.addLayout(legend_layout)
+        for idx, bm_run in enumerate(self.pw.benchmark_results):
+            bm_func = bm_run.split(' ')[0]
+            p_dict = self.pw.benchmark_runs[bm_func][bm_run]
+            legend_string = f'<b>{idx + 1}: {bm_run}</b><br>'
+            legend_string += '<br>'.join([f'{p} = {p_dict[p]}' for p in p_dict])
+            legend_layout.addWidget(QLabel(legend_string))
+        legend_widget.setLayout(legend_layout)
+        scroll_area.setWidget(legend_widget)
+        layout.addWidget(scroll_area)
 
         self.setLayout(layout)
 
@@ -318,16 +325,20 @@ class BenchmarkWindow(QMainWindow):
 
     def show_fps(self):
         now = time()
-        dt = now - self.last_time
-        self.last_time = now
-        if self.fps is None:
-            self.fps = 1.0 / dt
+        if self.last_time:
+            dt = now - self.last_time
         else:
-            s = np.clip(dt * 3., 0, 1)
-            self.fps = self.fps * (1 - s) + (1.0 / dt) * s
-        self.centralWidget().setTitle(f'{self.fps:.2f} fps')
-        if self.bm_run:
-            self.benchmark_results[self.bm_run].append(self.fps)
+            dt = None
+        self.last_time = now
+        if dt:
+            if self.fps is None:
+                self.fps = 1.0 / dt
+            else:
+                s = np.clip(dt * 3., 0, 1)
+                self.fps = self.fps * (1 - s) + (1.0 / dt) * s
+            self.centralWidget().setTitle(f'{self.fps:.2f} fps')
+            if self.bm_run:
+                self.benchmark_results[self.bm_run].append(self.fps)
 
     def get_n_limit(self):
         n = self.nbem_spinbox.value()
@@ -360,7 +371,7 @@ class BenchmarkWindow(QMainWindow):
     def start_single_benchmark(self):
         self.n_bm = 0
         selected_bm = self.benchmark_cmbx.currentText()
-        self.last_time = time()
+        self.last_time = None
         self.bm_timer = QTimer()
         self.bm_timer.timeout.connect(getattr(self, selected_bm))
         self.bm_timer.start(0)
@@ -370,6 +381,7 @@ class BenchmarkWindow(QMainWindow):
             self.cp_bm_runs = deepcopy(self.benchmark_runs)
             self.benchmark_results = dict()
             self.stop_multi_run = False
+            self.last_time = None
 
         if not self.stop_multi_run:
             self.n_bm = 0
@@ -385,7 +397,6 @@ class BenchmarkWindow(QMainWindow):
                     # Add to result-dict
                     self.benchmark_results[self.bm_run] = list()
                     self.setCentralWidget(PyQtGraphPtyp(self.raw, **kwargs))
-                    self.last_time = time()
                     self.bm_timer = QTimer()
                     self.bm_timer.timeout.connect(getattr(self, bm_func))
                     self.bm_timer.start(0)
