@@ -60,7 +60,7 @@ class KwargDialog(QDialog):
         self.show()
 
     def closeEvent(self, event):
-        self.pw.set_backend()
+        self.pw.setCentralWidget(PyQtGraphPtyp(self.pw.raw, **self.pw.backend_kwargs))
         event.accept()
 
 
@@ -236,7 +236,7 @@ class BenchmarkWindow(QMainWindow):
         # Add pyqtgraph-backend
         parameters = inspect.signature(PyQtGraphPtyp.__init__).parameters
         self.backend_kwargs = {p: parameters[p].default for p in parameters if parameters[p].default != inspect._empty}
-        self.set_backend()
+        self.setCentralWidget(PyQtGraphPtyp(self.raw, **self.backend_kwargs))
 
         self.bm_run = None
         self.stop_multi_run = False
@@ -253,9 +253,6 @@ class BenchmarkWindow(QMainWindow):
 
         self.finishedRun.connect(self.run_finished)
         self.finishedBm.connect(partial(ResultDialog, self))
-
-    def set_backend(self):
-        self.setCentralWidget(PyQtGraphPtyp(self.raw, **self.backend_kwargs))
 
     def load_raw(self):
         if self.raw is None:
@@ -404,7 +401,7 @@ class BenchmarkWindow(QMainWindow):
                     self.cp_bm_runs[bm_func].pop(self.bm_run)
                     # Add to result-dict
                     self.benchmark_results[self.bm_run] = list()
-                    self.set_backend()
+                    self.setCentralWidget(PyQtGraphPtyp(self.raw, **kwargs))
                     self.bm_timer = QTimer()
                     self.bm_timer.timeout.connect(getattr(self, bm_func))
                     self.bm_timer.start(0)

@@ -33,7 +33,7 @@ class RawDataItem(PlotDataItem):
         if viewbox is None or not hasattr(viewbox, 'viewRange'):
             return
 
-        xrange = viewbox.viewRect()[0]
+        xrange = viewbox.viewRange()[0]
         start = max(0, int(xrange[0] * self.sfreq))
         stop = min(len(self.data), int(xrange[1] * self.sfreq + 1))
         visible_x = self.times[start:stop]
@@ -77,7 +77,7 @@ class RawCurveItem(PlotCurveItem):
         if viewbox is None or not hasattr(viewbox, 'viewRange'):
             return
 
-        xrange = viewbox.viewRect()[0]
+        xrange = viewbox.viewRange()[0]
         start = max(0, int(xrange[0] * self.sfreq))
         stop = min(len(self.data), int(xrange[1] * self.sfreq + 1))
 

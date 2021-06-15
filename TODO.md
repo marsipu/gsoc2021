@@ -3,6 +3,7 @@
 ## Benchmark-Utility
 - [X] FPS Horizontal Scrolling
 - [ ] FPS Vertical Scrolling
+- [ ] Vertical Scrolling: All-Items(Channels)-In-Scene vs. Dynamically-Adding/Removing-Items
 - [ ] Time Zooming (X-Axis)
 - [ ] Time Zooming (Y-Axis)
 
