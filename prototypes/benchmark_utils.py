@@ -50,13 +50,18 @@ class EvalParam(QLineEdit):
 class KwargDialog(QDialog):
     def __init__(self, parent_widget):
         super().__init__(parent_widget)
+        self.pw = parent_widget
         layout = QVBoxLayout()
-        layout.addWidget(KwargEditor(parent_widget))
+        layout.addWidget(KwargEditor(self.pw.backend_kwargs))
         close_bt = QPushButton('Close')
         close_bt.clicked.connect(self.close)
         layout.addWidget(close_bt)
         self.setLayout(layout)
         self.show()
+
+    def closeEvent(self, event):
+        self.pw.set_backend()
+        event.accept()
 
 
 class KwargEditor(QWidget):
@@ -229,9 +234,9 @@ class BenchmarkWindow(QMainWindow):
         self.n_limit = 50
 
         # Add pyqtgraph-backend
-        self.setCentralWidget(PyQtGraphPtyp(self.raw))
         parameters = inspect.signature(PyQtGraphPtyp.__init__).parameters
         self.backend_kwargs = {p: parameters[p].default for p in parameters if parameters[p].default != inspect._empty}
+        self.set_backend()
 
         self.bm_run = None
         self.stop_multi_run = False
@@ -248,6 +253,9 @@ class BenchmarkWindow(QMainWindow):
 
         self.finishedRun.connect(self.run_finished)
         self.finishedBm.connect(partial(ResultDialog, self))
+
+    def set_backend(self):
+        self.setCentralWidget(PyQtGraphPtyp(self.raw, **self.backend_kwargs))
 
     def load_raw(self):
         if self.raw is None:
@@ -277,7 +285,7 @@ class BenchmarkWindow(QMainWindow):
         self.toolbar = self.addToolBar('Tools')
 
         aedit_kwargs = QAction('Edit Parameters', parent=self)
-        aedit_kwargs.triggered.connect(partial(KwargDialog, self.backend_kwargs))
+        aedit_kwargs.triggered.connect(partial(KwargDialog, self))
         self.toolbar.addAction(aedit_kwargs)
 
         self.toolbar.addSeparator()
@@ -396,7 +404,7 @@ class BenchmarkWindow(QMainWindow):
                     self.cp_bm_runs[bm_func].pop(self.bm_run)
                     # Add to result-dict
                     self.benchmark_results[self.bm_run] = list()
-                    self.setCentralWidget(PyQtGraphPtyp(self.raw, **kwargs))
+                    self.set_backend()
                     self.bm_timer = QTimer()
                     self.bm_timer.timeout.connect(getattr(self, bm_func))
                     self.bm_timer.start(0)

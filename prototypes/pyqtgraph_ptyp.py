@@ -33,7 +33,7 @@ class RawDataItem(PlotDataItem):
         if viewbox is None or not hasattr(viewbox, 'viewRange'):
             return
 
-        xrange = viewbox.viewRange()[0]
+        xrange = viewbox.viewRect()[0]
         start = max(0, int(xrange[0] * self.sfreq))
         stop = min(len(self.data), int(xrange[1] * self.sfreq + 1))
         visible_x = self.times[start:stop]
@@ -77,56 +77,27 @@ class RawCurveItem(PlotCurveItem):
         if viewbox is None or not hasattr(viewbox, 'viewRange'):
             return
 
-        xrange = viewbox.viewRange()[0]
+        xrange = viewbox.viewRect()[0]
         start = max(0, int(xrange[0] * self.sfreq))
         stop = min(len(self.data), int(xrange[1] * self.sfreq + 1))
 
         visible_x = self.times[start:stop]
+        visible_y = self.data[start:stop]
 
-        ds = int((stop - start) / self.limit) + 1
-        if ds == 1 or not self.custom_ds:
-            visible_y = self.data[start:stop]
-            scale = 1
-        else:
-            # Here convert data into a down-sampled array suitable for visualizing.
-            # Must do this piecewise to limit memory usage.
-            samples = 1 + ((stop - start) // ds)
-            visible = np.zeros(samples * 2, dtype=self.data.dtype)
-            sourcePtr = start
-            targetPtr = 0
-
-            # read data in chunks of ~1M samples
-            chunkSize = (1000000 // ds) * ds
-            while sourcePtr < stop - 1:
-                chunk = self.data[sourcePtr:min(stop, sourcePtr + chunkSize)]
-                sourcePtr += len(chunk)
-
-                # reshape chunk to be integral multiple of ds
-                chunk = chunk[:(len(chunk) // ds) * ds].reshape(len(chunk) // ds, ds)
-
-                # compute max and min
-                chunkMax = chunk.max(axis=1)
-                chunkMin = chunk.min(axis=1)
-
-                # interleave min and max into plot data to preserve envelope shape
-                visible[targetPtr:targetPtr + chunk.shape[0] * 2:2] = chunkMin
-                visible[1 + targetPtr:1 + targetPtr + chunk.shape[0] * 2:2] = chunkMax
-                targetPtr += chunk.shape[0] * 2
-
-            visible_y = visible[:targetPtr]
-            scale = ds * 0.5
-
-        if len(visible_x) > len(visible_y):
-            visible_x = visible_x[:len(visible_y)]
+        if self.custom_ds > 1:
+            # Auto-Downsampling and mean method from pyqtgraph
+            n = len(visible_x) // self.custom_ds
+            visible_x = visible_x[:n*self.custom_ds].reshape(n, self.custom_ds).mean(axis=1)
+            visible_y = visible_y[:n * self.custom_ds].reshape(n, self.custom_ds).mean(axis=1)
 
         self.setData(visible_x, visible_y)
         self.setPos(0, self.ypos)
         self.resetTransform()
-        self.scale(scale, 1)
 
 
 class PyQtGraphPtyp(PlotWidget):
-    def __init__(self, raw, duration=20, nchan=30, p_item_type='curve', pg_ds='subsample', custom_ds=True):
+    def __init__(self, raw, duration=20, nchan=30, p_item_type='curve', pg_ds=1,
+                 pg_ds_method='subsample', custom_ds=1):
         super().__init__(background='w')
 
         self.raw = raw
@@ -134,6 +105,7 @@ class PyQtGraphPtyp(PlotWidget):
         self.nchan = nchan
         self.p_item_type = p_item_type
         self.pg_ds = pg_ds
+        self.pg_ds_method = pg_ds_method
         self.custom_ds = custom_ds
         self.vspace = 50  # points between channels
         self.lines = list()
@@ -156,7 +128,7 @@ class PyQtGraphPtyp(PlotWidget):
                                 custom_ds=self.custom_ds)
         else:
             item = RawDataItem(data=ch_data, times=self.times, ypos=ypos, sfreq=self.raw.info['sfreq'])
-            item.setDownsampling(auto=self.pg_ds is not None, method=self.pg_ds)
+            item.setDownsampling(auto=self.pg_ds is None, ds=self.pg_ds or 1, method=self.pg_ds)
         item.setPen('k')
         self.lines.append(item)
         self.addItem(item)

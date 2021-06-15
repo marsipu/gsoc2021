@@ -8,7 +8,6 @@
 
 ## Functionalities
 - [X] Multiple Line-Plots
-- [ ] Compare 1 PlotItem vs multiple PlotItems
 - [X] X-Axes
 - [ ] Y-Axes
 - [ ] Vertical Scrolling (Only load show channels in ViewBox)

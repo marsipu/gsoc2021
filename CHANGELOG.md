@@ -1,5 +1,8 @@
 # Week 2
 
+## Tuesday, 2021-06-15
+- fix bugs in benchmark_utils and pyqtgraph_ptyp
+
 ## Monday, 2021-06-14
 - add queue-functionality to compare different parameter-settings
 - visualization of benchmark-results with pyqtgraph
