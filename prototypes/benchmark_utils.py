@@ -288,19 +288,19 @@ class BenchmarkWindow(QMainWindow):
         self.toolbar.addSeparator()
 
         adecr_time = QAction('-Time', parent=self)
-        adecr_time.triggered.connect(partial(self.centralWidget().change_duration, -1))
+        adecr_time.triggered.connect(partial(self.centralWidget().plot_item.change_duration, -1))
         self.toolbar.addAction(adecr_time)
 
         aincr_time = QAction('+Time', parent=self)
-        aincr_time.triggered.connect(partial(self.centralWidget().change_duration, 1))
+        aincr_time.triggered.connect(partial(self.centralWidget().plot_item.change_duration, 1))
         self.toolbar.addAction(aincr_time)
 
         adecr_nchan = QAction('-Channels', parent=self)
-        adecr_nchan.triggered.connect(partial(self.centralWidget().change_nchan, -1))
+        adecr_nchan.triggered.connect(partial(self.centralWidget().plot_item.change_nchan, -1))
         self.toolbar.addAction(adecr_nchan)
 
         aincr_nchan = QAction('+Channels', parent=self)
-        aincr_nchan.triggered.connect(partial(self.centralWidget().change_nchan, 1))
+        aincr_nchan.triggered.connect(partial(self.centralWidget().plot_item.change_nchan, 1))
         self.toolbar.addAction(aincr_nchan)
 
         self.toolbar.addSeparator()
@@ -371,7 +371,7 @@ class BenchmarkWindow(QMainWindow):
 
     @benchmark
     def benchmark_hscroll(self):
-        self.centralWidget().infini_hscroll(1)
+        self.centralWidget().plot_item.infini_hscroll(1)
 
     def start_single_benchmark(self):
         self.n_bm = 0

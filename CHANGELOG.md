@@ -1,5 +1,9 @@
 # Week 2
 
+## Wednesday, 2021-06-16
+- transition to lower-level use of PlotItem
+- implementation of y/channel-scrolling
+
 ## Tuesday, 2021-06-15
 - fix bugs in benchmark_utils and pyqtgraph_ptyp
 

@@ -3,7 +3,6 @@
 ## Benchmark-Utility
 - [X] FPS Horizontal Scrolling
 - [ ] FPS Vertical Scrolling
-- [ ] Vertical Scrolling: All-Items(Channels)-In-Scene vs. Dynamically-Adding/Removing-Items
 - [ ] Time Zooming (X-Axis)
 - [ ] Time Zooming (Y-Axis)
 
@@ -11,7 +10,7 @@
 - [X] Multiple Line-Plots
 - [X] X-Axes
 - [ ] Y-Axes
-- [ ] Vertical Scrolling (Only load show channels in ViewBox)
+- [X] Vertical Scrolling (Only load show channels in ViewBox)
 - [ ] Custom Scrollbars
 - [X] Zoom Duration/N-Channels
 - [ ] Vertical Line
