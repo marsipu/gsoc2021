@@ -1,5 +1,5 @@
 import numpy as np
-from pyqtgraph import (PlotCurveItem, PlotDataItem, PlotWidget)
+from pyqtgraph import (GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget)
 
 
 class RawDataItem(PlotDataItem):
@@ -17,7 +17,6 @@ class RawDataItem(PlotDataItem):
     @data.setter
     def data(self, value):
         self._data = value
-        self.viewRangeChanged()
 
     @property
     def times(self):
@@ -26,16 +25,19 @@ class RawDataItem(PlotDataItem):
     @times.setter
     def times(self, value):
         self._times = value
-        self.viewRangeChanged()
 
-    def viewRangeChanged(self):
+    def set_first_time(self):
         viewbox = self.getViewBox()
         if viewbox is None or not hasattr(viewbox, 'viewRange'):
             return
 
         xrange = viewbox.viewRange()[0]
-        start = max(0, int(xrange[0] * self.sfreq))
-        stop = min(len(self.data), int(xrange[1] * self.sfreq + 1))
+        self.xrange_changed(None, xrange)
+
+    def xrange_changed(self, _, xrange):
+        xmin, xmax = xrange
+        start = max(0, int(xmin * self.sfreq))
+        stop = min(len(self.data), int(xmax * self.sfreq + 1))
         visible_x = self.times[start:stop]
         visible_y = self.data[start:stop]
         self.setData(visible_x, visible_y)
@@ -61,7 +63,6 @@ class RawCurveItem(PlotCurveItem):
     @data.setter
     def data(self, value):
         self._data = value
-        self.viewRangeChanged()
 
     @property
     def times(self):
@@ -70,16 +71,19 @@ class RawCurveItem(PlotCurveItem):
     @times.setter
     def times(self, value):
         self._times = value
-        self.viewRangeChanged()
 
-    def viewRangeChanged(self):
+    def set_first_time(self):
         viewbox = self.getViewBox()
         if viewbox is None or not hasattr(viewbox, 'viewRange'):
             return
 
         xrange = viewbox.viewRange()[0]
-        start = max(0, int(xrange[0] * self.sfreq))
-        stop = min(len(self.data), int(xrange[1] * self.sfreq + 1))
+        self.xrange_changed(None, xrange)
+
+    def xrange_changed(self, _, xrange):
+        xmin, xmax = xrange
+        start = max(0, int(xmin * self.sfreq))
+        stop = min(len(self.data), int(xmax * self.sfreq + 1))
 
         visible_x = self.times[start:stop]
         visible_y = self.data[start:stop]
@@ -95,10 +99,18 @@ class RawCurveItem(PlotCurveItem):
         self.resetTransform()
 
 
-class PyQtGraphPtyp(PlotWidget):
+class RawController:
+    def __init__(self):
+        pass
+
+
+class PyQtGraphPtyp(GraphicsView):
     def __init__(self, raw, duration=20, nchan=30, p_item_type='curve', pg_ds=1,
                  pg_ds_method='subsample', custom_ds=1):
         super().__init__(background='w')
+
+        self.plot_item = PlotItem()
+        self.setCentralItem(self.plot_item)
 
         self.raw = raw
         self.duration = duration
@@ -114,10 +126,10 @@ class PyQtGraphPtyp(PlotWidget):
 
         self.data, self.times = self.raw.get_data(return_times=True)
         self.data *= 1e6  # Scale EEG-Data
-        self.setXRange(0, duration)
-        self.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'], yMin=0)
-        self.setLabel('bottom', 'Time', 's')
-        self.setYRange(0, self.nchan * self.vspace)
+        self.plot_item.setXRange(0, duration)
+        self.plot_item.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'], yMin=0)
+        self.plot_item.setLabel('bottom', 'Time', 's')
+        self.plot_item.setYRange(0, self.nchan * self.vspace)
         for idx, ch_data in enumerate(self.data[:self.nchan]):
             self.add_line(idx, ch_data)
 
@@ -130,16 +142,18 @@ class PyQtGraphPtyp(PlotWidget):
             item = RawDataItem(data=ch_data, times=self.times, ypos=ypos, sfreq=self.raw.info['sfreq'])
             item.setDownsampling(auto=self.pg_ds is None, ds=self.pg_ds or 1, method=self.pg_ds)
         item.setPen('k')
+        self.plot_item.sigXRangeChanged.connect(item.xrange_changed)
         self.lines.append(item)
-        self.addItem(item)
+        self.plot_item.addItem(item)
+        item.set_first_time()
 
     def remove_plot_item(self, idx):
         line = self.lines[idx]
-        self.removeItem(self.lines[idx])
+        self.plot_item.removeItem(self.lines[idx])
         self.lines.remove(line)
 
     def infini_hscroll(self, step):
-        left = self.viewRect().left()
+        left = self.plot_item.viewRect().left()
         right = left + self.duration
         if left + step * self._hscroll_dir <= 0:
             self._hscroll_dir = 1
@@ -147,18 +161,18 @@ class PyQtGraphPtyp(PlotWidget):
             self._hscroll_dir = -1
         left += step * self._hscroll_dir
         right += step * self._hscroll_dir
-        self.setXRange(left, right)
+        self.plot_item.setXRange(left, right)
 
     def change_duration(self, factor):
         self.duration += factor
         left = self.viewRect().left()
-        self.setXRange(max(0, left), left + self.duration)
+        self.plot_item.setXRange(max(0, left), left + self.duration)
 
     def change_nchan(self, factor):
         self.nchan += factor
         if factor > 0 and self.nchan < self.data.shape[0]:
             self.add_line(self.nchan - 1, self.data[self.nchan])
-            self.setYRange(0, self.nchan * self.vspace)
+            self.plot_item.setYRange(0, self.nchan * self.vspace)
         elif factor < 0 and self.nchan != 0:
             self.remove_plot_item(self.nchan)
-            self.setYRange(0, self.nchan * self.vspace)
+            self.plot_item.setYRange(0, self.nchan * self.vspace)

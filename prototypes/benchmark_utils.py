@@ -341,7 +341,7 @@ class BenchmarkWindow(QMainWindow):
             else:
                 s = np.clip(dt * 3., 0, 1)
                 self.fps = self.fps * (1 - s) + (1.0 / dt) * s
-            self.centralWidget().setTitle(f'{self.fps:.2f} fps')
+            self.centralWidget().plot_item.setTitle(f'{self.fps:.2f} fps')
             if self.bm_run:
                 self.benchmark_results[self.bm_run].append(self.fps)
 
