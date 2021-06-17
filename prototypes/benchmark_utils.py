@@ -235,6 +235,11 @@ class BenchmarkWindow(QMainWindow):
         self.n_bm = None
         self.n_limit = 50
 
+        # Values for change duration/n-channel benchmarks
+        self.change_limit = 20
+        self.duration_bm = 10
+        self.nchan_bm = 2
+
         # Add pyqtgraph-backend
         parameters = inspect.signature(PyQtGraphPtyp.__init__).parameters
         self.backend_kwargs = {p: parameters[p].default for p in parameters if parameters[p].default != inspect._empty}
@@ -378,6 +383,18 @@ class BenchmarkWindow(QMainWindow):
     @benchmark
     def benchmark_vscroll(self):
         self.centralWidget().plot_item.infini_vscroll(1, self)
+
+    @benchmark
+    def benchmark_duration_change(self):
+        if self.n_bm % self.change_limit == 0:
+            self.duration_bm *= -1
+        self.centralWidget().plot_item.change_duration(self.duration_bm)
+
+    @benchmark
+    def benchmark_nchan_change(self):
+        if self.n_bm % self.change_limit == 0:
+            self.nchan_bm *= -1
+        self.centralWidget().plot_item.change_nchan(self.nchan_bm)
 
     def start_single_benchmark(self):
         self.n_bm = 0

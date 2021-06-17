@@ -200,20 +200,16 @@ class RawPlot(PlotItem):
         self.bottom += step * self.vspace * self._vscroll_dir
         self.setYRange(self.bottom, self.top)
 
-    def change_duration(self, factor):
-        self.duration += factor
+    def change_duration(self, step):
+        self.duration += step
         left = self.viewRect().left()
-        self.setXRange(max(0, left), left + self.duration)
+        right = left + self.duration
+        self.setXRange(max(0, left), min(right, self.data.shape[1] / self.raw.info['sfreq']))
 
-    def change_nchan(self, factor):
-        if factor > 0 and self.nchan < self.data.shape[0]:
-            ypos = self.nchan * self.vspace
-            self.add_line(ypos, self.data[self.nchan])
-            self.setYRange(0, self.nchan * self.vspace)
-        elif factor < 0 and self.nchan != 0:
-            ypos = list(self.lines.keys())[self.nchan - 1]
-            self.remove_line(ypos)
-            self.setYRange(0, self.nchan * self.vspace)
+    def change_nchan(self, step):
+        # Can only change from 0 because of weird viewRect-behaviour
+        self.nchan += step
+        self.setYRange(0, self.nchan * self.vspace)
 
 
 class PyQtGraphPtyp(GraphicsView):
