@@ -3,7 +3,7 @@
 ## Benchmark-Utility
 - [X] FPS Horizontal Scrolling
 - [X] FPS Vertical Scrolling
-- [ ] Time Zooming (X-Axis)
+- [X] Time Zooming (X-Axis)
 - [ ] Time Zooming (Y-Axis)
 
 ## Functionalities
