@@ -235,10 +235,8 @@ class BenchmarkWindow(QMainWindow):
         self.n_bm = None
         self.n_limit = 50
 
-        # Values for change duration/n-channel benchmarks
-        self.change_limit = 20
-        self.duration_bm = 10
-        self.nchan_bm = 2
+        # limit for change duration/n-channel benchmarks (stays inside this range)
+        self.change_limit = 10
 
         # Add pyqtgraph-backend
         parameters = inspect.signature(PyQtGraphPtyp.__init__).parameters
@@ -390,14 +388,18 @@ class BenchmarkWindow(QMainWindow):
             self.duration_bm *= -1
         self.centralWidget().plot_item.change_duration(self.duration_bm)
 
-    @benchmark
-    def benchmark_nchan_change(self):
-        if self.n_bm % self.change_limit == 0:
-            self.nchan_bm *= -1
-        self.centralWidget().plot_item.change_nchan(self.nchan_bm)
+    # ToDo: setYRange seems to somehow apply AutoRange or fit of the data
+    #  into the frame which has to be deactivated for this to work
+    # @benchmark
+    # def benchmark_nchan_change(self):
+    #     if self.n_bm % self.change_limit == 0 and self.n_bm != 0:
+    #         self.nchan_bm *= -1
+    #     self.centralWidget().plot_item.change_nchan(self.nchan_bm)
 
     def start_single_benchmark(self):
         self.n_bm = 0
+        self.duration_bm = 2
+        self.nchan_bm = 1
         selected_bm = self.benchmark_cmbx.currentText()
         self.last_time = None
         self.bm_timer = QTimer()
@@ -413,6 +415,8 @@ class BenchmarkWindow(QMainWindow):
 
         if not self.stop_multi_run:
             self.n_bm = 0
+            self.duration_bm = 2
+            self.nchan_bm = 2
             # Very cluttered way to get and pop first benchmark-run from nested dictionary.
             while len(self.cp_bm_runs) > 0 and len(self.cp_bm_runs[list(self.cp_bm_runs.keys())[0]]) == 0:
                 self.cp_bm_runs.pop(list(self.cp_bm_runs.keys())[0])

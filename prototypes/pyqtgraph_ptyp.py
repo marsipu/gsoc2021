@@ -1,7 +1,7 @@
 from collections import OrderedDict
 
 import numpy as np
-from pyqtgraph import (GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget)
+from pyqtgraph import (GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget, ViewBox)
 
 
 class RawDataItem(PlotDataItem):
@@ -120,6 +120,8 @@ class RawPlot(PlotItem):
         self._hscroll_dir = 1
         self._vscroll_dir = 1
 
+        self.vb.disableAutoRange(ViewBox.XYAxes)
+
         self.setXRange(0, duration)
         self.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'],
                        yMin=0, yMax=self.data.shape[0] * self.vspace)
@@ -201,15 +203,19 @@ class RawPlot(PlotItem):
         self.setYRange(self.bottom, self.top)
 
     def change_duration(self, step):
-        self.duration += step
-        left = self.viewRect().left()
-        right = left + self.duration
-        self.setXRange(max(0, left), min(right, self.data.shape[1] / self.raw.info['sfreq']))
+        new_duration = self.duration + step
+        if 0 < new_duration < self.data.shape[1] / self.raw.info['sfreq']:
+            self.duration += step
+            left = self.viewRect().left()
+            right = left + self.duration
+            self.setXRange(max(0, left), min(right, self.data.shape[1] / self.raw.info['sfreq']))
 
     def change_nchan(self, step):
         # Can only change from 0 because of weird viewRect-behaviour
-        self.nchan += step
-        self.setYRange(0, self.nchan * self.vspace)
+        new_nchan = (self.nchan + step) * self.vspace
+        if 0 < new_nchan < self.data.shape[0] * self.vspace:
+            self.nchan += step
+            self.setYRange(0, self.nchan * self.vspace)
 
 
 class PyQtGraphPtyp(GraphicsView):
