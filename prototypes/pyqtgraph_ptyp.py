@@ -118,6 +118,7 @@ class RawPlot(PlotItem):
 
         self.lines = OrderedDict()
         self._hscroll_dir = 1
+        self._vscroll_dir = 1
 
         self.setXRange(0, duration)
         self.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'],
@@ -173,16 +174,31 @@ class RawPlot(PlotItem):
                 self.add_line(ypos, self.data[idx - 1])
                 self.lines.move_to_end(ypos, last=True)
 
-    def infini_hscroll(self, step):
-        left = self.viewRect().left()
-        right = left + self.duration
-        if left + step * self._hscroll_dir <= 0:
+    def infini_hscroll(self, step, parent):
+        if parent.n_bm == 0:
+            self.left = self.viewRect().left()
+            self.right = self.left + self.duration
+        if self.left + step * self._hscroll_dir <= 0:
             self._hscroll_dir = 1
-        if right + step * self._hscroll_dir >= self.data.shape[1] / self.raw.info['sfreq']:
+        if self.right + step * self._hscroll_dir >= self.data.shape[1] / self.raw.info['sfreq']:
             self._hscroll_dir = -1
-        left += step * self._hscroll_dir
-        right += step * self._hscroll_dir
-        self.setXRange(left, right)
+        self.left += step * self._hscroll_dir
+        self.right += step * self._hscroll_dir
+        self.setXRange(self.left, self.right)
+
+    def infini_vscroll(self, step, parent):
+        # ViewRange somehow changes nonlinear with setYRange
+        if parent.n_bm == 0:
+            # For some reason top is here bottom??
+            self.top = self.viewRect().bottom()
+            self.bottom = self.top - self.nchan * self.vspace
+        if self.bottom + step * self._vscroll_dir <= 0:
+            self._vscroll_dir = 1
+        if self.top + step * self._vscroll_dir >= self.data.shape[0] * self.vspace:
+            self._vscroll_dir = -1
+        self.top += step * self.vspace * self._vscroll_dir
+        self.bottom += step * self.vspace * self._vscroll_dir
+        self.setYRange(self.bottom, self.top)
 
     def change_duration(self, factor):
         self.duration += factor

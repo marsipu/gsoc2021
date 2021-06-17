@@ -149,28 +149,30 @@ class BenchmarkEditor(QDialog):
                 self.list_widget.addItem(bm_run)
 
     def bm_run_changed(self, bm_run):
-        bm_func = bm_run.split(' ')[0]
-        if bm_run in self.pw.benchmark_runs[bm_func]:
-            new_dict = self.pw.benchmark_runs[bm_func][bm_run]
-            self.kwarg_editor.change_kwarg_dict(new_dict)
+        if bm_run != '':
+            bm_func = bm_run.split(' ')[0]
+            if bm_run in self.pw.benchmark_runs[bm_func]:
+                new_dict = self.pw.benchmark_runs[bm_func][bm_run]
+                self.kwarg_editor.change_kwarg_dict(new_dict)
 
     def add_bm(self):
         bm_func = self.benchmark_cmbx.currentText()
         func_idx = len(self.pw.benchmark_runs[bm_func]) + 1
         bm_run = f'{bm_func} #{func_idx}'
         # Add to benchmark-runs
-        self.pw.benchmark_runs[bm_func][bm_run] = deepcopy(self.pw.backend_kwargs)
+        self.pw.benchmark_runs[bm_func][bm_run] = deepcopy(self.kwarg_editor.kd)
         # Add to list_widget
         self.list_widget.addItem(bm_run)
 
     def remove_bm(self):
         current_row = self.list_widget.currentRow()
-        bm_run = self.list_widget.item(current_row).text()
-        bm_func = bm_run.split(' ')[0]
-        # Remove from benchmark-runs
-        self.pw.benchmark_runs[bm_func].pop(bm_run)
-        # Remove List-Item
-        self.list_widget.takeItem(current_row)
+        if current_row:
+            bm_run = self.list_widget.item(current_row).text()
+            bm_func = bm_run.split(' ')[0]
+            # Remove from benchmark-runs
+            self.pw.benchmark_runs[bm_func].pop(bm_run)
+            # Remove List-Item
+            self.list_widget.takeItem(current_row)
 
     def start_benchmark(self):
         self.pw.start_benchmark(True)
@@ -197,7 +199,7 @@ class ResultDialog(QDialog):
 
         self.plot_widget = PlotWidget()
         x = np.arange(1, len(self.pw.benchmark_results) + 1)
-        height = np.asarray([np.mean(self.pw.benchmark_results[key]) for key in self.pw.benchmark_results])
+        height = np.asarray([np.median(self.pw.benchmark_results[key]) for key in self.pw.benchmark_results])
         bar_item = BarGraphItem(x=x, height=height, width=0.8)
         self.plot_widget.addItem(bar_item)
         layout.addWidget(self.plot_widget)
@@ -364,14 +366,18 @@ class BenchmarkWindow(QMainWindow):
     def benchmark(func):
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
-            self.check_break()
             func(self, *args, **kwargs)
             self.show_fps()
+            self.check_break()
         return wrapper
 
     @benchmark
     def benchmark_hscroll(self):
-        self.centralWidget().plot_item.infini_hscroll(1)
+        self.centralWidget().plot_item.infini_hscroll(1, self)
+
+    @benchmark
+    def benchmark_vscroll(self):
+        self.centralWidget().plot_item.infini_vscroll(1, self)
 
     def start_single_benchmark(self):
         self.n_bm = 0
@@ -415,3 +421,4 @@ class BenchmarkWindow(QMainWindow):
     def run_finished(self, run_type):
         if run_type == 'multi':
             self.start_benchmark(False)
+            self.n_bm = 0
