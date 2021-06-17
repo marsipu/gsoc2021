@@ -166,7 +166,7 @@ class BenchmarkEditor(QDialog):
 
     def remove_bm(self):
         current_row = self.list_widget.currentRow()
-        if current_row:
+        if current_row != -1:
             bm_run = self.list_widget.item(current_row).text()
             bm_func = bm_run.split(' ')[0]
             # Remove from benchmark-runs

@@ -1,5 +1,8 @@
 # Week 2
 
+## Thursday, 2021-06-17
+- add benchmarks for vertical scrolling, changing channel-count, changing duration
+
 ## Wednesday, 2021-06-16
 - transition to lower-level use of PlotItem
 - implementation of y/channel-scrolling
