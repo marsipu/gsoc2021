@@ -104,7 +104,12 @@ class RawCurveItem(PlotCurveItem):
 class RawPlot(PlotItem):
     def __init__(self, raw, duration, nchan, p_item_type, pg_ds,
                  pg_ds_method, custom_ds, vspace):
-        super().__init__()
+
+        self.axis_items = None
+        self.init_axis_items()
+
+        super().__init__(axis_items=self.axis_items)
+
         self.raw = raw
         self.data, self.times = self.raw.get_data(return_times=True)
         self.data *= 1e6  # Scale EEG-Data
@@ -132,6 +137,9 @@ class RawPlot(PlotItem):
             self.add_line(ypos, ch_data)
 
         self.sigYRangeChanged.connect(self.yrange_changed)
+
+    def init_axis_items(self):
+        pass
 
     def add_line(self, ypos, ch_data):
         if self.p_item_type == 'curve':
