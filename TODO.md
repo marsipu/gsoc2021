@@ -1,4 +1,4 @@
-# ToDo Prototypes
+# ToDo
 
 ## Benchmark-Utility
 - [X] FPS Horizontal Scrolling
@@ -6,14 +6,20 @@
 - [X] Time Zooming (X-Axis)
 - [ ] Time Zooming (Y-Axis)
 
-## Functionalities
+## Features
 - [X] Multiple Line-Plots
 - [X] X-Axes
-- [ ] Y-Axes
-- [X] Vertical Scrolling (Only load show channels in ViewBox)
-- [ ] Custom Scrollbars
+- [ ] Y-Axes (with channel-names)
+- [X] Vertical Scrolling (Only load shown channels in ViewBox)
+- [ ] Scrollbars
+- [ ] custom Scrollbars with markers inside
 - [X] Zoom Duration/N-Channels
 - [ ] Vertical Line
-- [ ] Mark Channel
+- [ ] Mark Channels
 - [ ] Area Selection
 - [ ] Marking Bad Epochs + Autoreject (Bad-Segment with subsegments per channel)
+- [ ] OpenGL (optional)
+- [ ] change distance between channels dynamically (up to zero==butterfly)
+
+## Outlook
+- [ ] OverviewBar (GFP, zscore, etc.)
