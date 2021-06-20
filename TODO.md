@@ -10,7 +10,7 @@
 ## Features
 - [X] Multiple Line-Plots
 - [X] X-Axes
-- [ ] Y-Axes (with channel-names)
+- [X] Y-Axes (with channel-names)
 - [X] Vertical Scrolling (Only load shown channels in ViewBox)
 - [ ] Scrollbars
 - [ ] custom Scrollbars with markers inside

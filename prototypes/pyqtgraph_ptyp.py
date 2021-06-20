@@ -1,7 +1,8 @@
 from collections import OrderedDict
 
 import numpy as np
-from pyqtgraph import (GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget, ViewBox)
+from PyQt5.QtCore import Qt
+from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget, ViewBox)
 
 
 class RawDataItem(PlotDataItem):
@@ -101,14 +102,45 @@ class RawCurveItem(PlotCurveItem):
         self.resetTransform()
 
 
+class TimeAxis(AxisItem):
+    def __init__(self, main):
+        self.main = main
+        super().__init__(orientation='bottom')
+
+    def tickStrings(self, values, scale, spacing):
+
+        if self.main.clock_ticks:
+            pass
+
+        return super().tickStrings(values, scale, spacing)
+
+
+class ChannelAxis(AxisItem):
+    def __init__(self, main):
+        self.main = main
+        super().__init__(orientation='left')
+
+    def tickValues(self, minVal, maxVal, size):
+        tick_values = [(self.main.vspace, [k for k in self.main.lines.keys()])]
+        return tick_values
+
+    def tickStrings(self, values, scale, spacing):
+        if not isinstance(values, list):
+            values = [values]
+        # Get channel-names
+        tick_strings = [self.main.raw.ch_names[int(v // self.main.vspace) - 1] for v in values]
+
+        return tick_strings
+
+
 class RawPlot(PlotItem):
     def __init__(self, raw, duration, nchan, p_item_type, pg_ds,
                  pg_ds_method, custom_ds, vspace):
 
-        self.axis_items = None
-        self.init_axis_items()
-
-        super().__init__(axis_items=self.axis_items)
+        self.axis_items = {'bottom': TimeAxis(self),
+                           'left': ChannelAxis(self)}
+        self.clock_ticks = False
+        super().__init__(axisItems=self.axis_items)
 
         self.raw = raw
         self.data, self.times = self.raw.get_data(return_times=True)
@@ -137,9 +169,6 @@ class RawPlot(PlotItem):
             self.add_line(ypos, ch_data)
 
         self.sigYRangeChanged.connect(self.yrange_changed)
-
-    def init_axis_items(self):
-        pass
 
     def add_line(self, ypos, ch_data):
         if self.p_item_type == 'curve':
@@ -230,6 +259,9 @@ class PyQtGraphPtyp(GraphicsView):
     def __init__(self, raw, duration=20, nchan=30, p_item_type='curve', pg_ds=1,
                  pg_ds_method='subsample', custom_ds=1, vspace=50):
         super().__init__(background='w')
+
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
         self.plot_item = RawPlot(raw, duration, nchan, p_item_type, pg_ds,
                                  pg_ds_method, custom_ds, vspace)
