@@ -1,4 +1,6 @@
 # Week 2
+## Friday, 2021-06-18
+- add channel-names to Y-Axis
 
 ## Thursday, 2021-06-17
 - add benchmarks for vertical scrolling, changing channel-count, changing duration
