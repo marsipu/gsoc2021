@@ -1,3 +1,8 @@
+# Week 3
+## Monday, 2021-06-21
+- add clock-time to X-Axis
+- list channels from the top
+
 # Week 2
 ## Friday, 2021-06-18
 - add channel-names to Y-Axis

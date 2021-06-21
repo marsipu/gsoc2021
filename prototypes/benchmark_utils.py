@@ -333,6 +333,10 @@ class BenchmarkWindow(QMainWindow):
         aedit_bm.triggered.connect(partial(BenchmarkEditor, self))
         self.toolbar.addAction(aedit_bm)
 
+        ampl_plot = QAction('MPL-Plot', parent=self)
+        ampl_plot.triggered.connect(self.mpl_plot)
+        self.toolbar.addAction(ampl_plot)
+
     def show_fps(self):
         now = time()
         if self.last_time:
@@ -443,3 +447,6 @@ class BenchmarkWindow(QMainWindow):
         if run_type == 'multi':
             self.start_benchmark(False)
             self.n_bm = 0
+
+    def mpl_plot(self):
+        self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])

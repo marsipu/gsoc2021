@@ -147,7 +147,7 @@ class ChannelAxis(AxisItem):
 
 class RawViewBox(ViewBox):
     def __init__(self, main):
-        super().__init__()
+        super().__init__(invertY=True)
         self.main = main
 
     def keyPressEvent(self, ev):
@@ -167,7 +167,7 @@ class RawPlot(PlotItem):
 
         self.raw = raw
         self.data, self.times = self.raw.get_data(return_times=True)
-        self.data *= 1e6  # Scale EEG-Data
+        self.data *= -1e6  # Scale EEG-Data and invert to list channels from the top
         self.duration = duration
         self.nchan = nchan
         self.p_item_type = p_item_type
