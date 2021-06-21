@@ -16,7 +16,7 @@
 - [ ] custom Scrollbars with markers inside
 - [X] Zoom Duration/N-Channels
 - [ ] Vertical Line
-- [ ] Mark Channels
+- [ ] Mark Channels (including channel-label)
 - [ ] Area Selection
 - [ ] Marking Bad Epochs + Autoreject (Bad-Segment with subsegments per channel)
 - [ ] OpenGL (optional)
