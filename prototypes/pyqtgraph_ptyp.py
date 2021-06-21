@@ -51,14 +51,16 @@ class RawDataItem(PlotDataItem):
 
 
 class RawCurveItem(PlotCurveItem):
-    def __init__(self, data, times, ypos, sfreq, *args, custom_ds=True, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, data, times, ypos, sfreq, custom_ds=True, isbad=False):
+        super().__init__(clickable=True)
         self._data = data
         self._times = times
         self.ypos = ypos
         self.sfreq = sfreq
         self.limit = 10000  # maximum number of samples to be plotted
         self.custom_ds = custom_ds
+        self.isbad = isbad
+        self.set_color()
 
     @property
     def data(self):
@@ -75,6 +77,12 @@ class RawCurveItem(PlotCurveItem):
     @times.setter
     def times(self, value):
         self._times = value
+
+    def set_color(self):
+        if self.isbad:
+            self.setPen('r')
+        else:
+            self.setPen('k')
 
     def set_first_time(self):
         viewbox = self.getViewBox()
@@ -101,6 +109,15 @@ class RawCurveItem(PlotCurveItem):
         self.setData(visible_x, visible_y)
         self.setPos(0, self.ypos)
         self.resetTransform()
+
+    def mouseClickEvent(self, ev):
+        if not self.clickable or ev.button() != Qt.MouseButton.LeftButton:
+            return
+        if self.mouseShape().contains(ev.pos()):
+            ev.accept()
+            self.isbad = not self.isbad
+            self.set_color()
+            self.sigClicked.emit(self, ev)
 
 
 class TimeAxis(AxisItem):
@@ -140,7 +157,7 @@ class ChannelAxis(AxisItem):
         if not isinstance(values, list):
             values = [values]
         # Get channel-names
-        tick_strings = [self.main.raw.ch_names[int(v // self.main.vspace) - 1] for v in values]
+        tick_strings = [self.main._get_ch_from_ypos(v) for v in values]
 
         return tick_strings
 
@@ -193,14 +210,21 @@ class RawPlot(PlotItem):
 
         self.sigYRangeChanged.connect(self.yrange_changed)
 
+    def _get_ch_from_ypos(self, ypos):
+        ch_name = self.raw.ch_names[int(ypos // self.vspace) - 1]
+
+        return ch_name
+
     def add_line(self, ypos, ch_data):
         if self.p_item_type == 'curve':
+            ch_name = self._get_ch_from_ypos(ypos)
             item = RawCurveItem(data=ch_data, times=self.times, ypos=ypos, sfreq=self.raw.info['sfreq'],
-                                custom_ds=self.custom_ds)
+                                custom_ds=self.custom_ds, isbad=ch_name in self.raw.info['bads'])
+            item.sigClicked.connect(self.bad_changed)
         else:
             item = RawDataItem(data=ch_data, times=self.times, ypos=ypos, sfreq=self.raw.info['sfreq'])
             item.setDownsampling(auto=self.pg_ds is None, ds=self.pg_ds or 1, method=self.pg_ds)
-        item.setPen('k')
+            item.setPen('k')
         self.sigXRangeChanged.connect(item.xrange_changed)
         self.lines[ypos] = item
         self.nchan = len(self.lines)
@@ -211,6 +235,15 @@ class RawPlot(PlotItem):
         self.removeItem(self.lines[ypos])
         self.lines.pop(ypos)
         self.nchan = len(self.lines)
+
+    def bad_changed(self, line, ev):
+        ch_name = self._get_ch_from_ypos(line.ypos)
+        if line.isbad and ch_name not in self.raw.info['bads']:
+            self.raw.info['bads'].append(ch_name)
+            print(f'{ch_name} added to bad channels!')
+        elif ch_name in self.raw.info['bads']:
+            self.raw.info['bads'].remove(ch_name)
+            print(f'{ch_name} removed from bad channels!')
 
     def yrange_changed(self, _, yrange):
         ymin, ymax = yrange
