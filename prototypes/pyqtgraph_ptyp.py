@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import datetime
 
 import numpy as np
 from PyQt5.QtCore import Qt
@@ -110,9 +111,20 @@ class TimeAxis(AxisItem):
     def tickStrings(self, values, scale, spacing):
 
         if self.main.clock_ticks:
-            pass
-
-        return super().tickStrings(values, scale, spacing)
+            meas_date = self.main.raw.info['meas_date']
+            first_time = datetime.timedelta(seconds=self.main.raw.first_time)
+            digits = np.ceil(-np.log10(spacing) + 1).astype(int)
+            tick_strings = list()
+            for val in values:
+                val_time = datetime.timedelta(seconds=val) + first_time + meas_date
+                val_str = val_time.strftime('%H:%M:%S')
+                if int(val_time.microsecond):
+                    val_str += f'{round(val_time.microsecond * 1e-6, digits)}'[1:]
+                tick_strings.append(val_str)
+        else:
+            tick_strings = super().tickStrings(values, scale, spacing)
+        
+        return tick_strings
 
 
 class ChannelAxis(AxisItem):
@@ -133,14 +145,25 @@ class ChannelAxis(AxisItem):
         return tick_strings
 
 
+class RawViewBox(ViewBox):
+    def __init__(self, main):
+        super().__init__()
+        self.main = main
+
+    def keyPressEvent(self, ev):
+        ev.accept()
+        if ev.text() == 't':
+            self.main.clock_ticks = not self.main.clock_ticks
+            self.sigXRangeChanged.emit(self, tuple(self.state['viewRange'][0]))
+
+
 class RawPlot(PlotItem):
     def __init__(self, raw, duration, nchan, p_item_type, pg_ds,
                  pg_ds_method, custom_ds, vspace):
-
         self.axis_items = {'bottom': TimeAxis(self),
                            'left': ChannelAxis(self)}
         self.clock_ticks = False
-        super().__init__(axisItems=self.axis_items)
+        super().__init__(viewBox=RawViewBox(self), axisItems=self.axis_items)
 
         self.raw = raw
         self.data, self.times = self.raw.get_data(return_times=True)
