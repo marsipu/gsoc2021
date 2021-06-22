@@ -1,6 +1,7 @@
 # Week 3
 ## Tuesday, 2021-06-22
 - improve bad-channel-selection (color of ch_name and clicking on ch_name)
+- add horizontal scrollbar
 
 ## Monday, 2021-06-21
 - add clock-time to X-Axis
