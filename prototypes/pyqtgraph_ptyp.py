@@ -7,7 +7,7 @@ from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox,
 
 
 class RawCurveItem(PlotCurveItem):
-    def __init__(self, data, times, ch_name, ypos, sfreq, custom_ds=True, isbad=False):
+    def __init__(self, data, times, ch_name, ypos, sfreq, ds=1, isbad=False):
         super().__init__(clickable=True)
         self._data = data
         self._times = times
@@ -15,7 +15,7 @@ class RawCurveItem(PlotCurveItem):
         self.ypos = ypos
         self.sfreq = sfreq
         self.limit = 10000  # maximum number of samples to be plotted
-        self.custom_ds = custom_ds
+        self.ds = ds
         self.isbad = isbad
         self.update_bad_color()
 
@@ -57,11 +57,11 @@ class RawCurveItem(PlotCurveItem):
         visible_x = self.times[start:stop]
         visible_y = self.data[start:stop]
 
-        if self.custom_ds > 1:
+        if self.ds > 1:
             # Auto-Downsampling and mean method from pyqtgraph
-            n = len(visible_x) // self.custom_ds
-            visible_x = visible_x[:n*self.custom_ds].reshape(n, self.custom_ds).mean(axis=1)
-            visible_y = visible_y[:n * self.custom_ds].reshape(n, self.custom_ds).mean(axis=1)
+            n = len(visible_x) // self.ds
+            visible_x = visible_x[:n*self.ds].reshape(n, self.ds).mean(axis=1)
+            visible_y = visible_y[:n * self.ds].reshape(n, self.ds).mean(axis=1)
 
         self.setData(visible_x, visible_y)
         self.setPos(0, self.ypos)
@@ -157,8 +157,7 @@ class RawViewBox(ViewBox):
 
 
 class RawPlot(PlotItem):
-    def __init__(self, raw, duration, nchan, pg_ds,
-                 pg_ds_method, custom_ds, vspace):
+    def __init__(self, raw, duration, nchan, ds, vspace):
         self.axis_items = {'bottom': TimeAxis(self),
                            'left': ChannelAxis(self)}
         self.clock_ticks = False
@@ -169,9 +168,7 @@ class RawPlot(PlotItem):
         self.data *= -1e6  # Scale EEG-Data and invert to list channels from the top
         self.duration = duration
         self.nchan = nchan
-        self.pg_ds = pg_ds
-        self.pg_ds_method = pg_ds_method
-        self.custom_ds = custom_ds
+        self.ds = ds
         self.vspace = vspace
 
         self.lines = OrderedDict()
@@ -200,7 +197,7 @@ class RawPlot(PlotItem):
 
     def add_line(self, ypos, ch_data, ch_name):
         item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos, sfreq=self.raw.info['sfreq'],
-                            custom_ds=self.custom_ds, isbad=ch_name in self.raw.info['bads'])
+                            ds=self.ds, isbad=ch_name in self.raw.info['bads'])
         item.sigClicked.connect(self.bad_changed)
         self.sigXRangeChanged.connect(item.xrange_changed)
         self.lines[ch_name] = (item, ypos)
@@ -305,9 +302,7 @@ class RawPlot(PlotItem):
 
 
 class PyQtGraphPtyp(GraphicsView):
-    def __init__(self, raw, duration=20, nchan=30, pg_ds=1,
-                 pg_ds_method='subsample', custom_ds=1, vspace=50):
+    def __init__(self, raw, duration=20, nchan=30, ds=1, vspace=50):
         super().__init__(background='w')
-        self.plot_item = RawPlot(raw, duration, nchan, pg_ds,
-                                 pg_ds_method, custom_ds, vspace)
+        self.plot_item = RawPlot(raw, duration, nchan, ds, vspace)
         self.setCentralItem(self.plot_item)
