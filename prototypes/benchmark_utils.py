@@ -401,7 +401,7 @@ class BenchmarkWindow(QMainWindow):
     #     self.centralWidget().plot_item.change_nchan(self.nchan_bm)
 
     def start_single_benchmark(self):
-        self.n_bm = 0
+        self.n_bm = 1
         self.duration_bm = 2
         self.nchan_bm = 1
         selected_bm = self.benchmark_cmbx.currentText()
@@ -418,7 +418,7 @@ class BenchmarkWindow(QMainWindow):
             self.last_time = None
 
         if not self.stop_multi_run:
-            self.n_bm = 0
+            self.n_bm = 1
             self.duration_bm = 2
             self.nchan_bm = 2
             # Very cluttered way to get and pop first benchmark-run from nested dictionary.
@@ -446,7 +446,7 @@ class BenchmarkWindow(QMainWindow):
     def run_finished(self, run_type):
         if run_type == 'multi':
             self.start_benchmark(False)
-            self.n_bm = 0
+            self.n_bm = 1
 
     def mpl_plot(self):
         self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])

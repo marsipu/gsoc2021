@@ -3,6 +3,7 @@ from collections import OrderedDict
 
 import numpy as np
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QGraphicsProxyWidget, QScrollBar
 from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox, functions)
 
 
@@ -144,6 +145,23 @@ class ChannelAxis(AxisItem):
         return super().mouseClickEvent(event)
 
 
+class TimeScrollBar(QGraphicsProxyWidget):
+    def __init__(self, main):
+        super().__init__()
+        self.main = main
+
+        self.scrollbar = QScrollBar(Qt.Horizontal)
+        self.scrollbar.setMinimum(0)
+        self.scrollbar.setMaximum(self.main.xmax - self.main.duration)
+        self.scrollbar.setPageStep(self.main.duration)
+        self.scrollbar.setSingleStep(1)
+        self.scrollbar.valueChanged.connect(self.time_changed)
+        self.setWidget(self.scrollbar)
+
+    def time_changed(self, value):
+        self.main.setXRange(value, value + self.main.duration, padding=0)
+
+
 class RawViewBox(ViewBox):
     def __init__(self, main):
         super().__init__(invertY=True)
@@ -163,6 +181,7 @@ class RawPlot(PlotItem):
         self.clock_ticks = False
         super().__init__(viewBox=RawViewBox(self), axisItems=self.axis_items)
 
+
         self.raw = raw
         self.data, self.times = self.raw.get_data(return_times=True)
         self.data *= -1e6  # Scale EEG-Data and invert to list channels from the top
@@ -177,9 +196,15 @@ class RawPlot(PlotItem):
 
         self.vb.disableAutoRange(ViewBox.XYAxes)
 
+        # Add ScrollBars
+        self.xmax = self.times[-1]
+        self.ymax = (self.data.shape[0] + 1) * self.vspace
+        self.time_bar = TimeScrollBar(self)
+        self.layout.addItem(self.time_bar, 4, 1)
+
         self.setXRange(0, duration, padding=0)
-        self.setLimits(xMin=0, xMax=self.times[-1],
-                       yMin=0, yMax=(self.data.shape[0] + 1) * self.vspace)
+        self.setLimits(xMin=0, xMax=self.xmax,
+                       yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
         self.setYRange(0, (self.nchan + 1) * self.vspace, padding=0)
         for idx, (ch_data, ch_name) in \
@@ -188,6 +213,7 @@ class RawPlot(PlotItem):
             ypos = idx * self.vspace + self.vspace
             self.add_line(ypos, ch_data, ch_name)
 
+        self.sigXRangeChanged.connect(self.xrange_changed)
         self.sigYRangeChanged.connect(self.yrange_changed)
 
     def _get_ch_name(self, ypos):
@@ -231,6 +257,9 @@ class RawPlot(PlotItem):
     def bad_changed(self, line, ev):
         self._addrm_bad_channel(line.ch_name, add=line.isbad)
 
+    def xrange_changed(self, _, xrange):
+        self.time_bar.scrollbar.setValue(xrange[0])
+
     def yrange_changed(self, _, yrange):
         ymin, ymax = yrange
         # # Add padding
@@ -258,17 +287,17 @@ class RawPlot(PlotItem):
                 self.add_line(ypos, self.data[idx - 1], ch_name)
                 self.lines.move_to_end(ch_name, last=True)
 
+    def hscroll(self, step):
+        xrange = self.vb.viewRange()[0]
+        xrange = [i + step for i in xrange]
+        if all([0 <= i <= self.xmax for i in xrange]):
+            self.setXRange(*xrange, padding=0)
+
     def infini_hscroll(self, step, parent):
-        if parent.n_bm == 0:
-            self.left = self.viewRect().left()
-            self.right = self.left + self.duration
-        if self.left + step * self._hscroll_dir <= 0:
-            self._hscroll_dir = 1
-        if self.right + step * self._hscroll_dir >= self.data.shape[1] / self.raw.info['sfreq']:
-            self._hscroll_dir = -1
-        self.left += step * self._hscroll_dir
-        self.right += step * self._hscroll_dir
-        self.setXRange(self.left, self.right, padding=0)
+        if parent.n_bm % (int(self.xmax / step)) == 0:
+            self._hscroll_dir *= -1
+        step *= self._hscroll_dir
+        self.hscroll(step)
 
     def infini_vscroll(self, step, parent):
         # ViewRange somehow changes nonlinear with setYRange

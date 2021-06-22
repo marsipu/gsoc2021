@@ -12,7 +12,8 @@
 - [X] X-Axes
 - [X] Y-Axes (with channel-names)
 - [X] Vertical Scrolling (Only load shown channels in ViewBox)
-- [ ] Scrollbars
+- [X] Horizontal Scrollbar
+- [ ] Vertical Scrollbar
 - [ ] custom Scrollbars with markers inside
 - [X] Zoom Duration/N-Channels
 - [ ] Vertical Line
