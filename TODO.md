@@ -7,7 +7,7 @@
 - [X] Time Zooming (X-Axis)
 - [ ] Time Zooming (Y-Axis)
 
-## Features
+## Basic Features
 - [X] Multiple Line-Plots
 - [X] X-Axes
 - [X] Y-Axes (with channel-names)
@@ -16,11 +16,14 @@
 - [ ] custom Scrollbars with markers inside
 - [X] Zoom Duration/N-Channels
 - [ ] Vertical Line
-- [ ] Mark Channels (including channel-label)
+- [X] Mark Channels (including channel-label)
 - [ ] Area Selection
 - [ ] Marking Bad Epochs + Autoreject (Bad-Segment with subsegments per channel)
-- [ ] OpenGL (optional)
+
+## Advanced Features
 - [ ] change distance between channels dynamically (up to zero==butterfly)
+- [ ] OpenGL (optional)
+- [ ] Tooltip/Crosshair at cursor which shows time/value under cursor-tip (prerequisite: handle different channel-scales)
 
 ## Outlook
 - [ ] OverviewBar (GFP, zscore, etc.)
