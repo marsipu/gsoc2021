@@ -3,7 +3,8 @@ import datetime
 
 import numpy as np
 from PyQt5.QtCore import Qt
-from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget, ViewBox)
+from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget, ViewBox, debug,
+                       functions)
 
 
 class RawDataItem(PlotDataItem):
@@ -51,16 +52,17 @@ class RawDataItem(PlotDataItem):
 
 
 class RawCurveItem(PlotCurveItem):
-    def __init__(self, data, times, ypos, sfreq, custom_ds=True, isbad=False):
+    def __init__(self, data, times, ch_name, ypos, sfreq, custom_ds=True, isbad=False):
         super().__init__(clickable=True)
         self._data = data
         self._times = times
+        self.ch_name = ch_name
         self.ypos = ypos
         self.sfreq = sfreq
         self.limit = 10000  # maximum number of samples to be plotted
         self.custom_ds = custom_ds
         self.isbad = isbad
-        self.set_color()
+        self.update_bad_color()
 
     @property
     def data(self):
@@ -78,7 +80,7 @@ class RawCurveItem(PlotCurveItem):
     def times(self, value):
         self._times = value
 
-    def set_color(self):
+    def update_bad_color(self):
         if self.isbad:
             self.setPen('r')
         else:
@@ -116,7 +118,7 @@ class RawCurveItem(PlotCurveItem):
         if self.mouseShape().contains(ev.pos()):
             ev.accept()
             self.isbad = not self.isbad
-            self.set_color()
+            self.update_bad_color()
             self.sigClicked.emit(self, ev)
 
 
@@ -147,19 +149,44 @@ class TimeAxis(AxisItem):
 class ChannelAxis(AxisItem):
     def __init__(self, main):
         self.main = main
+        self.ch_texts = dict()
         super().__init__(orientation='left')
 
     def tickValues(self, minVal, maxVal, size):
-        tick_values = [(self.main.vspace, [k for k in self.main.lines.keys()])]
+        tick_values = [(self.main.vspace, [self.main.lines[k][1] for k in self.main.lines.keys()])]
         return tick_values
 
     def tickStrings(self, values, scale, spacing):
         if not isinstance(values, list):
             values = [values]
         # Get channel-names
-        tick_strings = [self.main._get_ch_from_ypos(v) for v in values]
+        tick_strings = [self.main._get_ch_name(v) for v in values]
 
         return tick_strings
+
+    def drawPicture(self, p, axisSpec, tickSpecs, textSpecs):
+        super().drawPicture(p, axisSpec, tickSpecs, textSpecs)
+        for rect, flags, text in textSpecs:
+            if text in self.main.raw.info['bads']:
+                p.setPen(functions.mkPen('r'))
+            else:
+                p.setPen(functions.mkPen('k'))
+            self.ch_texts[text] = (rect.top(), rect.top() + rect.height())
+            p.drawText(rect, int(flags), text)
+
+    def mouseClickEvent(self, event):
+        # Clean up channel-texts
+        self.ch_texts = {k: v for k, v in self.ch_texts.items()
+                         if k in self.main.lines}
+        # Get channel-name from position of channel-label
+        ypos = event.scenePos().y()
+        ch_name = [chn for chn in self.ch_texts
+                   if self.ch_texts[chn][0] < ypos < self.ch_texts[chn][1]]
+        if len(ch_name) > 0:
+            ch_name = ch_name[0]
+            print(f'{ch_name} clicked!')
+            self.main._addrm_bad_channel(ch_name)
+        return super().mouseClickEvent(event)
 
 
 class RawViewBox(ViewBox):
@@ -201,24 +228,25 @@ class RawPlot(PlotItem):
 
         self.setXRange(0, duration)
         self.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'],
-                       yMin=0, yMax=self.data.shape[0] * self.vspace)
+                       yMin=0, yMax=(self.data.shape[0] + 1) * self.vspace)
         self.setLabel('bottom', 'Time', 's')
         self.setYRange(0, self.nchan * self.vspace)
-        for idx, ch_data in enumerate(self.data[:self.nchan]):
+        for idx, (ch_data, ch_name) in \
+                enumerate(zip(self.data[:self.nchan],
+                              self.raw.ch_names[:self.nchan])):
             ypos = idx * self.vspace + self.vspace
-            self.add_line(ypos, ch_data)
+            self.add_line(ypos, ch_data, ch_name)
 
         self.sigYRangeChanged.connect(self.yrange_changed)
 
-    def _get_ch_from_ypos(self, ypos):
+    def _get_ch_name(self, ypos):
         ch_name = self.raw.ch_names[int(ypos // self.vspace) - 1]
 
         return ch_name
 
-    def add_line(self, ypos, ch_data):
+    def add_line(self, ypos, ch_data, ch_name):
         if self.p_item_type == 'curve':
-            ch_name = self._get_ch_from_ypos(ypos)
-            item = RawCurveItem(data=ch_data, times=self.times, ypos=ypos, sfreq=self.raw.info['sfreq'],
+            item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos, sfreq=self.raw.info['sfreq'],
                                 custom_ds=self.custom_ds, isbad=ch_name in self.raw.info['bads'])
             item.sigClicked.connect(self.bad_changed)
         else:
@@ -226,48 +254,63 @@ class RawPlot(PlotItem):
             item.setDownsampling(auto=self.pg_ds is None, ds=self.pg_ds or 1, method=self.pg_ds)
             item.setPen('k')
         self.sigXRangeChanged.connect(item.xrange_changed)
-        self.lines[ypos] = item
+        self.lines[ch_name] = (item, ypos)
         self.nchan = len(self.lines)
         self.addItem(item)
         item.set_first_time()
 
-    def remove_line(self, ypos):
-        self.removeItem(self.lines[ypos])
-        self.lines.pop(ypos)
+    def remove_line(self, ch_name):
+        self.removeItem(self.lines[ch_name][0])
+        self.lines.pop(ch_name)
         self.nchan = len(self.lines)
 
-    def bad_changed(self, line, ev):
-        ch_name = self._get_ch_from_ypos(line.ypos)
-        if line.isbad and ch_name not in self.raw.info['bads']:
+    def _addrm_bad_channel(self, ch_name, add=True):
+        line = self.lines[ch_name][0]
+        if add and ch_name not in self.raw.info['bads']:
             self.raw.info['bads'].append(ch_name)
+            line.isbad = True
             print(f'{ch_name} added to bad channels!')
         elif ch_name in self.raw.info['bads']:
             self.raw.info['bads'].remove(ch_name)
+            line.isbad = False
             print(f'{ch_name} removed from bad channels!')
+
+        # Update line color
+        line.update_bad_color()
+
+        # Update Channel-Axis (TODO: Is there a better way? .update() doesn't seem to work)
+        self.axes['left']['item'].hide()
+        self.axes['left']['item'].show()
+
+    def bad_changed(self, line, ev):
+        self._addrm_bad_channel(line.ch_name, add=line.isbad)
 
     def yrange_changed(self, _, yrange):
         ymin, ymax = yrange
         # # Add padding
         # ymin += self.vspace * 1.5
         # ymax -= self.vspace * 1.5
-        remove_lines = [k for k in self.lines if k < ymin or k > ymax]
-        for ypos in remove_lines:
-            self.remove_line(ypos)
-        min_ch_idx = min(self.lines.keys()) // self.vspace
+        remove_lines = [k for k in self.lines
+                        if self.lines[k][1] < ymin
+                        or self.lines[k][1] > ymax]
+        for ch_name in remove_lines:
+            self.remove_line(ch_name)
+        min_ch_idx = min([v[1] for v in self.lines.values()]) // self.vspace
         ymin_ch_idx = int(ymin // self.vspace) + 1
-        for idx in reversed(range(ymin_ch_idx, min_ch_idx)):
-            if idx >= 0:
-                ypos = idx * self.vspace
-                self.add_line(ypos, self.data[idx - 1])
-                self.lines.move_to_end(ypos, last=False)
+        for idx in [i for i in reversed(range(ymin_ch_idx, min_ch_idx)) if i >= 0]:
+            ypos = idx * self.vspace
+            ch_name = self._get_ch_name(ypos)
+            self.add_line(ypos, self.data[idx - 1], ch_name)
+            self.lines.move_to_end(ch_name, last=False)
 
-        max_ch_idx = max(self.lines.keys()) // self.vspace + 1
+        max_ch_idx = max([v[1] for v in self.lines.values()]) // self.vspace + 1
         ymax_ch_idx = int(ymax // self.vspace)
-        for idx in range(max_ch_idx, ymax_ch_idx):
-            if idx <= len(self.data):
+        for idx in [i for i in range(max_ch_idx, ymax_ch_idx)
+                    if i <= len(self.data)]:
                 ypos = idx * self.vspace
-                self.add_line(ypos, self.data[idx - 1])
-                self.lines.move_to_end(ypos, last=True)
+                ch_name = self._get_ch_name(ypos)
+                self.add_line(ypos, self.data[idx - 1], ch_name)
+                self.lines.move_to_end(ch_name, last=True)
 
     def infini_hscroll(self, step, parent):
         if parent.n_bm == 0:
