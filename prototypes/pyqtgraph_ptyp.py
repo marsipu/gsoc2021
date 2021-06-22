@@ -2,7 +2,7 @@ from collections import OrderedDict
 import datetime
 
 import numpy as np
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QRectF, Qt
 from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget, ViewBox, debug,
                        functions)
 
@@ -226,11 +226,11 @@ class RawPlot(PlotItem):
 
         self.vb.disableAutoRange(ViewBox.XYAxes)
 
-        self.setXRange(0, duration)
-        self.setLimits(xMin=0, xMax=self.data.shape[1] / self.raw.info['sfreq'],
+        self.setXRange(0, duration, padding=0)
+        self.setLimits(xMin=0, xMax=self.times[-1],
                        yMin=0, yMax=(self.data.shape[0] + 1) * self.vspace)
         self.setLabel('bottom', 'Time', 's')
-        self.setYRange(0, self.nchan * self.vspace)
+        self.setYRange(0, (self.nchan + 1) * self.vspace, padding=0)
         for idx, (ch_data, ch_name) in \
                 enumerate(zip(self.data[:self.nchan],
                               self.raw.ch_names[:self.nchan])):
@@ -322,7 +322,7 @@ class RawPlot(PlotItem):
             self._hscroll_dir = -1
         self.left += step * self._hscroll_dir
         self.right += step * self._hscroll_dir
-        self.setXRange(self.left, self.right)
+        self.setXRange(self.left, self.right, padding=0)
 
     def infini_vscroll(self, step, parent):
         # ViewRange somehow changes nonlinear with setYRange
@@ -336,7 +336,7 @@ class RawPlot(PlotItem):
             self._vscroll_dir = -1
         self.top += step * self.vspace * self._vscroll_dir
         self.bottom += step * self.vspace * self._vscroll_dir
-        self.setYRange(self.bottom, self.top)
+        self.setYRange(self.bottom, self.top, padding=0)
 
     def change_duration(self, step):
         new_duration = self.duration + step
@@ -344,24 +344,21 @@ class RawPlot(PlotItem):
             self.duration += step
             left = self.viewRect().left()
             right = left + self.duration
-            self.setXRange(max(0, left), min(right, self.data.shape[1] / self.raw.info['sfreq']))
+            self.setXRange(max(0, left), min(right, self.data.shape[1] / self.raw.info['sfreq']),
+                           padding=0)
 
     def change_nchan(self, step):
         # Can only change from 0 because of weird viewRect-behaviour
         new_nchan = (self.nchan + step) * self.vspace
         if 0 < new_nchan < self.data.shape[0] * self.vspace:
             self.nchan += step
-            self.setYRange(0, self.nchan * self.vspace)
+            self.setYRange(0, (self.nchan + 1) * self.vspace, padding=0)
 
 
 class PyQtGraphPtyp(GraphicsView):
     def __init__(self, raw, duration=20, nchan=30, p_item_type='curve', pg_ds=1,
                  pg_ds_method='subsample', custom_ds=1, vspace=50):
         super().__init__(background='w')
-
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-
         self.plot_item = RawPlot(raw, duration, nchan, p_item_type, pg_ds,
                                  pg_ds_method, custom_ds, vspace)
         self.setCentralItem(self.plot_item)
