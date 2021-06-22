@@ -1,54 +1,9 @@
-from collections import OrderedDict
 import datetime
+from collections import OrderedDict
 
 import numpy as np
-from PyQt5.QtCore import QRectF, Qt
-from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotDataItem, PlotItem, PlotWidget, ViewBox, debug,
-                       functions)
-
-
-class RawDataItem(PlotDataItem):
-    def __init__(self, data, times, ypos, sfreq, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._data = data
-        self._times = times
-        self.ypos = ypos
-        self.sfreq = sfreq
-
-    @property
-    def data(self):
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = value
-
-    @property
-    def times(self):
-        return self._times
-
-    @times.setter
-    def times(self, value):
-        self._times = value
-
-    def set_first_time(self):
-        viewbox = self.getViewBox()
-        if viewbox is None or not hasattr(viewbox, 'viewRange'):
-            return
-
-        xrange = viewbox.viewRange()[0]
-        self.xrange_changed(None, xrange)
-
-    def xrange_changed(self, _, xrange):
-        xmin, xmax = xrange
-        start = max(0, int(xmin * self.sfreq))
-        stop = min(len(self.data), int(xmax * self.sfreq + 1))
-        visible_x = self.times[start:stop]
-        visible_y = self.data[start:stop]
-        self.setData(visible_x, visible_y)
-        # Use GraphicsObject.setPos to avoid infinite recursion
-        super(PlotDataItem, self).setPos(0, self.ypos)
-        self.resetTransform()
+from PyQt5.QtCore import Qt
+from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox, functions)
 
 
 class RawCurveItem(PlotCurveItem):
@@ -202,7 +157,7 @@ class RawViewBox(ViewBox):
 
 
 class RawPlot(PlotItem):
-    def __init__(self, raw, duration, nchan, p_item_type, pg_ds,
+    def __init__(self, raw, duration, nchan, pg_ds,
                  pg_ds_method, custom_ds, vspace):
         self.axis_items = {'bottom': TimeAxis(self),
                            'left': ChannelAxis(self)}
@@ -214,7 +169,6 @@ class RawPlot(PlotItem):
         self.data *= -1e6  # Scale EEG-Data and invert to list channels from the top
         self.duration = duration
         self.nchan = nchan
-        self.p_item_type = p_item_type
         self.pg_ds = pg_ds
         self.pg_ds_method = pg_ds_method
         self.custom_ds = custom_ds
@@ -245,14 +199,9 @@ class RawPlot(PlotItem):
         return ch_name
 
     def add_line(self, ypos, ch_data, ch_name):
-        if self.p_item_type == 'curve':
-            item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos, sfreq=self.raw.info['sfreq'],
-                                custom_ds=self.custom_ds, isbad=ch_name in self.raw.info['bads'])
-            item.sigClicked.connect(self.bad_changed)
-        else:
-            item = RawDataItem(data=ch_data, times=self.times, ypos=ypos, sfreq=self.raw.info['sfreq'])
-            item.setDownsampling(auto=self.pg_ds is None, ds=self.pg_ds or 1, method=self.pg_ds)
-            item.setPen('k')
+        item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos, sfreq=self.raw.info['sfreq'],
+                            custom_ds=self.custom_ds, isbad=ch_name in self.raw.info['bads'])
+        item.sigClicked.connect(self.bad_changed)
         self.sigXRangeChanged.connect(item.xrange_changed)
         self.lines[ch_name] = (item, ypos)
         self.nchan = len(self.lines)
@@ -356,9 +305,9 @@ class RawPlot(PlotItem):
 
 
 class PyQtGraphPtyp(GraphicsView):
-    def __init__(self, raw, duration=20, nchan=30, p_item_type='curve', pg_ds=1,
+    def __init__(self, raw, duration=20, nchan=30, pg_ds=1,
                  pg_ds_method='subsample', custom_ds=1, vspace=50):
         super().__init__(background='w')
-        self.plot_item = RawPlot(raw, duration, nchan, p_item_type, pg_ds,
+        self.plot_item = RawPlot(raw, duration, nchan, pg_ds,
                                  pg_ds_method, custom_ds, vspace)
         self.setCentralItem(self.plot_item)
