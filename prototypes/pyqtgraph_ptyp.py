@@ -302,7 +302,10 @@ class RawPlot(PlotItem):
 
 
 class PyQtGraphPtyp(GraphicsView):
-    def __init__(self, raw, duration=20, nchan=30, ds=1, vspace=50):
+    def __init__(self, raw, duration=20, nchan=30, ds=1, vspace=50, antialiasing=False,
+                 use_opengl=False):
         super().__init__(background='w')
         self.plot_item = RawPlot(raw, duration, nchan, ds, vspace)
         self.setCentralItem(self.plot_item)
+        self.setAntialiasing(antialiasing)
+        self.useOpenGL(use_opengl)
