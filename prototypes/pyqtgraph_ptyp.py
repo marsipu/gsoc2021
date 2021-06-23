@@ -175,7 +175,7 @@ class RawViewBox(ViewBox):
 
 
 class RawPlot(PlotItem):
-    def __init__(self, raw, duration, nchan, ds, vspace, enable_cache):
+    def __init__(self, raw, duration, nchan, ds, vspace, enable_cache, xrange_directly):
         self.axis_items = {'bottom': TimeAxis(self),
                            'left': ChannelAxis(self)}
         self.clock_ticks = False
@@ -190,12 +190,14 @@ class RawPlot(PlotItem):
         self.ds = ds
         self.vspace = vspace
         self.enable_cache = enable_cache
+        self.xrange_directly = xrange_directly
 
         self.lines = OrderedDict()
         self._hscroll_dir = 1
         self._vscroll_dir = 1
 
         self.vb.disableAutoRange(ViewBox.XYAxes)
+        self.hideButtons()
 
         # Add ScrollBars
         self.xmax = self.times[-1]
@@ -228,7 +230,8 @@ class RawPlot(PlotItem):
         if self.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
         item.sigClicked.connect(self.bad_changed)
-        self.sigXRangeChanged.connect(item.xrange_changed)
+        if self.xrange_directly:
+            self.sigXRangeChanged.connect(item.xrange_changed)
         self.lines[ch_name] = (item, ypos)
         self.nchan = len(self.lines)
         self.addItem(item)
@@ -262,6 +265,10 @@ class RawPlot(PlotItem):
 
     def xrange_changed(self, _, xrange):
         self.time_bar.scrollbar.setValue(xrange[0])
+        if not self.xrange_directly:
+            for ch_name in self.lines:
+                line = self.lines[ch_name][0]
+                line.xrange_changed(None, xrange)
 
     def yrange_changed(self, _, yrange):
         ymin, ymax = yrange
@@ -335,10 +342,10 @@ class RawPlot(PlotItem):
 
 class PyQtGraphPtyp(GraphicsView):
     def __init__(self, raw, duration=20, nchan=30, ds=1, vspace=50, enable_cache=False, antialiasing=False,
-                 use_opengl=False):
+                 use_opengl=False, xrange_directly=True):
         super().__init__(background='w')
         self.plot_item = RawPlot(raw=raw, duration=duration, nchan=nchan, ds=ds, vspace=vspace,
-                                 enable_cache=enable_cache)
+                                 enable_cache=enable_cache, xrange_directly=xrange_directly)
         self.setCentralItem(self.plot_item)
         self.setAntialiasing(antialiasing)
         self.useOpenGL(use_opengl)
