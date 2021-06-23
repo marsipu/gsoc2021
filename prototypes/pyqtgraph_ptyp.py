@@ -3,7 +3,7 @@ from collections import OrderedDict
 
 import numpy as np
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGraphicsProxyWidget, QScrollBar
+from PyQt5.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QScrollBar
 from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox, functions)
 
 
@@ -175,7 +175,7 @@ class RawViewBox(ViewBox):
 
 
 class RawPlot(PlotItem):
-    def __init__(self, raw, duration, nchan, ds, vspace):
+    def __init__(self, raw, duration, nchan, ds, vspace, enable_cache):
         self.axis_items = {'bottom': TimeAxis(self),
                            'left': ChannelAxis(self)}
         self.clock_ticks = False
@@ -189,6 +189,7 @@ class RawPlot(PlotItem):
         self.nchan = nchan
         self.ds = ds
         self.vspace = vspace
+        self.enable_cache = enable_cache
 
         self.lines = OrderedDict()
         self._hscroll_dir = 1
@@ -224,6 +225,8 @@ class RawPlot(PlotItem):
     def add_line(self, ypos, ch_data, ch_name):
         item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos, sfreq=self.raw.info['sfreq'],
                             ds=self.ds, isbad=ch_name in self.raw.info['bads'])
+        if self.enable_cache:
+            item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
         item.sigClicked.connect(self.bad_changed)
         self.sigXRangeChanged.connect(item.xrange_changed)
         self.lines[ch_name] = (item, ypos)
@@ -331,10 +334,11 @@ class RawPlot(PlotItem):
 
 
 class PyQtGraphPtyp(GraphicsView):
-    def __init__(self, raw, duration=20, nchan=30, ds=1, vspace=50, antialiasing=False,
+    def __init__(self, raw, duration=20, nchan=30, ds=1, vspace=50, enable_cache=False, antialiasing=False,
                  use_opengl=False):
         super().__init__(background='w')
-        self.plot_item = RawPlot(raw, duration, nchan, ds, vspace)
+        self.plot_item = RawPlot(raw=raw, duration=duration, nchan=nchan, ds=ds, vspace=vspace,
+                                 enable_cache=enable_cache)
         self.setCentralItem(self.plot_item)
         self.setAntialiasing(antialiasing)
         self.useOpenGL(use_opengl)
