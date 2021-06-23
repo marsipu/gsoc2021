@@ -3,7 +3,7 @@ from collections import OrderedDict
 
 import numpy as np
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QScrollBar
+from PyQt5.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QScrollBar, QVBoxLayout, QWidget
 from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox, functions)
 
 
@@ -145,18 +145,17 @@ class ChannelAxis(AxisItem):
         return super().mouseClickEvent(event)
 
 
-class TimeScrollBar(QGraphicsProxyWidget):
+class TimeScrollBar(QScrollBar):
     def __init__(self, main):
-        super().__init__()
+        super().__init__(Qt.Horizontal)
         self.main = main
 
-        self.scrollbar = QScrollBar(Qt.Horizontal)
-        self.scrollbar.setMinimum(0)
-        self.scrollbar.setMaximum(self.main.xmax - self.main.duration)
-        self.scrollbar.setPageStep(self.main.duration)
-        self.scrollbar.setSingleStep(1)
-        self.scrollbar.valueChanged.connect(self.time_changed)
-        self.setWidget(self.scrollbar)
+        self.setMinimum(0)
+        self.setMaximum(self.main.xmax - self.main.duration)
+        self.setPageStep(self.main.duration)
+        self.setSingleStep(1)
+        self.setFocusPolicy(Qt.WheelFocus)
+        self.valueChanged.connect(self.time_changed)
 
     def time_changed(self, value):
         self.main.setXRange(value, value + self.main.duration, padding=0)
@@ -202,8 +201,6 @@ class RawPlot(PlotItem):
         # Add ScrollBars
         self.xmax = self.times[-1]
         self.ymax = (self.data.shape[0] + 1) * self.vspace
-        self.time_bar = TimeScrollBar(self)
-        self.layout.addItem(self.time_bar, 4, 1)
 
         self.setXRange(0, duration, padding=0)
         self.setLimits(xMin=0, xMax=self.xmax,
@@ -264,7 +261,6 @@ class RawPlot(PlotItem):
         self._addrm_bad_channel(line.ch_name, add=line.isbad)
 
     def xrange_changed(self, _, xrange):
-        self.time_bar.scrollbar.setValue(xrange[0])
         if not self.xrange_directly:
             for ch_name in self.lines:
                 line = self.lines[ch_name][0]
@@ -340,12 +336,22 @@ class RawPlot(PlotItem):
             self.setYRange(0, (self.nchan + 1) * self.vspace, padding=0)
 
 
-class PyQtGraphPtyp(GraphicsView):
+class PyQtGraphPtyp(QWidget):
     def __init__(self, raw, duration=20, nchan=30, ds=1, vspace=50, enable_cache=False, antialiasing=False,
-                 use_opengl=False, xrange_directly=True):
-        super().__init__(background='w')
+                 use_opengl=False, xrange_directly=False):
+        super().__init__()
+        self.view = GraphicsView(background='w')
         self.plot_item = RawPlot(raw=raw, duration=duration, nchan=nchan, ds=ds, vspace=vspace,
                                  enable_cache=enable_cache, xrange_directly=xrange_directly)
-        self.setCentralItem(self.plot_item)
-        self.setAntialiasing(antialiasing)
-        self.useOpenGL(use_opengl)
+        self.plot_item.sigXRangeChanged.connect(self.xrange_changed)
+        self.view.setCentralItem(self.plot_item)
+        self.view.setAntialiasing(antialiasing)
+        self.view.useOpenGL(use_opengl)
+        layout = QVBoxLayout()
+        layout.addWidget(self.view)
+        self.time_bar = TimeScrollBar(self.plot_item)
+        layout.addWidget(self.time_bar)
+        self.setLayout(layout)
+
+    def xrange_changed(self, _, xrange):
+        self.time_bar.setValue(xrange[0])
