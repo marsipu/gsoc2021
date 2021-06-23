@@ -60,6 +60,9 @@ class KwargDialog(QDialog):
         self.show()
 
     def closeEvent(self, event):
+        old_widget = self.pw.takeCentralWidget()
+        old_widget.deleteLater()
+        del old_widget
         self.pw.setCentralWidget(PyQtGraphPtyp(self.pw.raw, **self.pw.backend_kwargs))
         event.accept()
 
@@ -304,19 +307,19 @@ class BenchmarkWindow(QMainWindow):
         self.toolbar.addSeparator()
 
         adecr_time = QAction('-Time', parent=self)
-        adecr_time.triggered.connect(partial(self.centralWidget().plot_item.change_duration, -1))
+        adecr_time.triggered.connect(partial(self.change_duration, -1))
         self.toolbar.addAction(adecr_time)
 
         aincr_time = QAction('+Time', parent=self)
-        aincr_time.triggered.connect(partial(self.centralWidget().plot_item.change_duration, 1))
+        aincr_time.triggered.connect(partial(self.change_duration, 1))
         self.toolbar.addAction(aincr_time)
 
         adecr_nchan = QAction('-Channels', parent=self)
-        adecr_nchan.triggered.connect(partial(self.centralWidget().plot_item.change_nchan, -1))
+        adecr_nchan.triggered.connect(partial(self.change_nchan, -1))
         self.toolbar.addAction(adecr_nchan)
 
         aincr_nchan = QAction('+Channels', parent=self)
-        aincr_nchan.triggered.connect(partial(self.centralWidget().plot_item.change_nchan, 1))
+        aincr_nchan.triggered.connect(partial(self.change_nchan, 1))
         self.toolbar.addAction(aincr_nchan)
 
         self.toolbar.addSeparator()
@@ -347,6 +350,14 @@ class BenchmarkWindow(QMainWindow):
         ampl_plot = QAction('MPL-Plot', parent=self)
         ampl_plot.triggered.connect(self.mpl_plot)
         self.toolbar.addAction(ampl_plot)
+
+    def change_duration(self, step):
+        item = self.centralWidget()
+        item.plot_item.change_duration(step)
+
+    def change_nchan(self, step):
+        item = self.centralWidget()
+        item.plot_item.change_nchan(step)
 
     def show_fps(self):
         now = time()
@@ -404,13 +415,11 @@ class BenchmarkWindow(QMainWindow):
             self.duration_bm *= -1
         self.centralWidget().plot_item.change_duration(self.duration_bm)
 
-    # ToDo: setYRange seems to somehow apply AutoRange or fit of the data
-    #  into the frame which has to be deactivated for this to work
-    # @benchmark
-    # def benchmark_nchan_change(self):
-    #     if self.n_bm % self.change_limit == 0 and self.n_bm != 0:
-    #         self.nchan_bm *= -1
-    #     self.centralWidget().plot_item.change_nchan(self.nchan_bm)
+    @benchmark
+    def benchmark_nchan_change(self):
+        if self.n_bm % self.change_limit == 0 and self.n_bm != 0:
+            self.nchan_bm *= -1
+        self.centralWidget().plot_item.change_nchan(self.nchan_bm)
 
     def start_single_benchmark(self):
         self.n_bm = 1

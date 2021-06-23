@@ -3,7 +3,7 @@ from collections import OrderedDict
 
 import numpy as np
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QScrollBar, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QGridLayout, QLabel, QScrollBar, QVBoxLayout, QWidget
 from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox, functions)
 
 
@@ -152,13 +152,37 @@ class TimeScrollBar(QScrollBar):
 
         self.setMinimum(0)
         self.setMaximum(self.main.xmax - self.main.duration)
-        self.setPageStep(self.main.duration)
+        self.update_duration()
         self.setSingleStep(1)
         self.setFocusPolicy(Qt.WheelFocus)
         self.valueChanged.connect(self.time_changed)
 
     def time_changed(self, value):
         self.main.setXRange(value, value + self.main.duration, padding=0)
+
+    def update_duration(self):
+        self.setPageStep(self.main.duration)
+
+
+class ChannelScrollBar(QScrollBar):
+    def __init__(self, main):
+        super().__init__(Qt.Vertical)
+        self.main = main
+
+        self.setMinimum(0)
+        self.setMaximum(self.main.ymax // self.main.vspace - self.main.nchan)
+        self.update_nchan()
+        self.setSingleStep(1)
+        self.setFocusPolicy(Qt.WheelFocus)
+        self.valueChanged.connect(self.channel_changed)
+
+    def channel_changed(self, value):
+        new_ymin = value * self.main.vspace
+        new_ymax = value * self.main.vspace + (self.main.nchan + 1) * self.main.vspace
+        self.main.setYRange(new_ymin, new_ymax, padding=0)
+
+    def update_nchan(self):
+        self.setPageStep(self.main.nchan)
 
 
 class RawViewBox(ViewBox):
@@ -198,7 +222,6 @@ class RawPlot(PlotItem):
         self.vb.disableAutoRange(ViewBox.XYAxes)
         self.hideButtons()
 
-        # Add ScrollBars
         self.xmax = self.times[-1]
         self.ymax = (self.data.shape[0] + 1) * self.vspace
 
@@ -268,12 +291,9 @@ class RawPlot(PlotItem):
 
     def yrange_changed(self, _, yrange):
         ymin, ymax = yrange
-        # # Add padding
-        # ymin += self.vspace * 1.5
-        # ymax -= self.vspace * 1.5
         remove_lines = [k for k in self.lines
-                        if self.lines[k][1] < ymin
-                        or self.lines[k][1] > ymax]
+                        if self.lines[k][1] <= ymin
+                        or self.lines[k][1] >= ymax]
         for ch_name in remove_lines:
             self.remove_line(ch_name)
         min_ch_idx = min([v[1] for v in self.lines.values()]) // self.vspace
@@ -300,40 +320,45 @@ class RawPlot(PlotItem):
             self.setXRange(*xrange, padding=0)
 
     def infini_hscroll(self, step, parent):
-        if parent.n_bm % (int(self.xmax / step)) == 0:
+        if parent.n_bm % (int(self.xmax / step) - self.duration) == 0:
             self._hscroll_dir *= -1
         step *= self._hscroll_dir
         self.hscroll(step)
 
+    def vscroll(self, step):
+        yrange = self.vb.viewRange()[1]
+        yrange = [i + step for i in yrange]
+        if all([0 <= i <= self.ymax for i in yrange]):
+            self.setYRange(*yrange, padding=0)
+
     def infini_vscroll(self, step, parent):
-        # ViewRange somehow changes nonlinear with setYRange
-        if parent.n_bm == 0:
-            # For some reason top is here bottom??
-            self.top = self.viewRect().bottom()
-            self.bottom = self.top - self.nchan * self.vspace
-        if self.bottom + step * self._vscroll_dir <= 0:
-            self._vscroll_dir = 1
-        if self.top + step * self._vscroll_dir >= self.data.shape[0] * self.vspace:
-            self._vscroll_dir = -1
-        self.top += step * self.vspace * self._vscroll_dir
-        self.bottom += step * self.vspace * self._vscroll_dir
-        self.setYRange(self.bottom, self.top, padding=0)
+        if parent.n_bm % (int(self.ymax / (step * self.vspace)) - self.nchan) == 0:
+            self._vscroll_dir *= -1
+        step *= self._vscroll_dir * self.vspace
+        self.vscroll(step)
 
     def change_duration(self, step):
-        new_duration = self.duration + step
-        if 0 < new_duration < self.data.shape[1] / self.raw.info['sfreq']:
-            self.duration += step
-            left = self.viewRect().left()
-            right = left + self.duration
-            self.setXRange(max(0, left), min(right, self.data.shape[1] / self.raw.info['sfreq']),
-                           padding=0)
+        xmin, xmax = self.vb.viewRange()[0]
+        if xmax != self.xmax or step < 0:
+            xmax += step
+        elif xmin != 0:
+            xmin -= step
+        else:
+            return
+        self.duration += step
+
+        self.setXRange(xmin, xmax, padding=0)
 
     def change_nchan(self, step):
-        # Can only change from 0 because of weird viewRect-behaviour
-        new_nchan = (self.nchan + step) * self.vspace
-        if 0 < new_nchan < self.data.shape[0] * self.vspace:
-            self.nchan += step
-            self.setYRange(0, (self.nchan + 1) * self.vspace, padding=0)
+        ymin, ymax = self.vb.viewRange()[1]
+        if ymax != self.ymax or step < 0:
+            ymax += step * self.vspace
+        elif ymin != 0:
+            ymin -= step * self.vspace
+        else:
+            return
+        self.nchan += step
+        self.setYRange(ymin, ymax, padding=0)
 
 
 class PyQtGraphPtyp(QWidget):
@@ -347,11 +372,18 @@ class PyQtGraphPtyp(QWidget):
         self.view.setCentralItem(self.plot_item)
         self.view.setAntialiasing(antialiasing)
         self.view.useOpenGL(use_opengl)
-        layout = QVBoxLayout()
-        layout.addWidget(self.view)
+        layout = QGridLayout()
+        layout.addWidget(self.view, 0, 0)
         self.time_bar = TimeScrollBar(self.plot_item)
-        layout.addWidget(self.time_bar)
+        layout.addWidget(self.time_bar, 1, 0)
+        self.channel_bar = ChannelScrollBar(self.plot_item)
+        layout.addWidget(self.channel_bar, 0, 1)
         self.setLayout(layout)
 
     def xrange_changed(self, _, xrange):
         self.time_bar.setValue(xrange[0])
+        self.time_bar.update_duration()
+
+    def yrange_changed(self, _, yrange):
+        self.channel_bar.setValue(yrange[0])
+        self.channel_bar.update_nchan()
