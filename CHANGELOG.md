@@ -1,4 +1,9 @@
 # Week 3
+## Wednesday, 2021-06-23
+- improve performance of horizontal scrollbar
+- add vertical scrollbar
+- fix benchmarks
+
 ## Tuesday, 2021-06-22
 - improve bad-channel-selection (color of ch_name and clicking on ch_name)
 - add horizontal scrollbar
