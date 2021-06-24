@@ -15,12 +15,16 @@
 - [X] Horizontal Scrollbar
 - [X] Vertical Scrollbar
 - [ ] custom Scrollbars with markers inside
+- [ ] adaption to Epochs
 - [X] Zoom Duration/N-Channels
 - [ ] Vertical Line
 - [ ] Event Lines
 - [X] Mark Channels (including channel-label)
 - [ ] Area Selection
 - [ ] Marking Bad Epochs + Autoreject (Bad-Segment with subsegments per channel)
+
+## User Interaction
+- Arrow-Keys for left-right-movement
 
 ## Advanced Features
 - [ ] change distance between channels dynamically (up to zero==butterfly)
