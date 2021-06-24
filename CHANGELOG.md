@@ -1,4 +1,9 @@
 # Week 3
+## Thursday, 2021-06-24
+- fix scrollbar-issues
+- add scalings for multiple types
+- remove vspace-parameter
+
 ## Wednesday, 2021-06-23
 - improve performance of horizontal scrollbar
 - add vertical scrollbar

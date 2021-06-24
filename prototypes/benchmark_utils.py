@@ -284,7 +284,7 @@ class BenchmarkWindow(QMainWindow):
                 self.raw = mne.io.read_raw(raw_fname, preload=True)
                 self.raw.filter(1, None, n_jobs=-1)
                 self.raw.save(raw_hp_filtered_path)
-            self.raw.pick_types(eeg=True)
+            # self.raw.pick_types(eeg=True)
 
     def get_bm_cmbx(self):
         bm_cmbx = QComboBox()
