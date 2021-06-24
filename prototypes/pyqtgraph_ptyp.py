@@ -4,6 +4,7 @@ from collections import OrderedDict
 import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QGridLayout, QLabel, QScrollBar, QVBoxLayout, QWidget
+from mne.viz.utils import _compute_scalings
 from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox, functions)
 
 
@@ -109,14 +110,14 @@ class ChannelAxis(AxisItem):
         super().__init__(orientation='left')
 
     def tickValues(self, minVal, maxVal, size):
-        tick_values = [(self.main.vspace, [self.main.lines[k][1] for k in self.main.lines.keys()])]
+        tick_values = [(1, [self.main.lines[k][1] for k in self.main.lines.keys()])]
         return tick_values
 
     def tickStrings(self, values, scale, spacing):
         if not isinstance(values, list):
             values = [values]
         # Get channel-names
-        tick_strings = [self.main._get_ch_name(v) for v in values]
+        tick_strings = [self.main.raw.ch_names[v - 1] for v in values]
 
         return tick_strings
 
@@ -170,15 +171,15 @@ class ChannelScrollBar(QScrollBar):
         self.main = main
 
         self.setMinimum(0)
-        self.setMaximum(self.main.ymax // self.main.vspace - self.main.nchan)
+        self.setMaximum(self.main.ymax - self.main.nchan - 2)
         self.update_nchan()
         self.setSingleStep(1)
         self.setFocusPolicy(Qt.WheelFocus)
         self.valueChanged.connect(self.channel_changed)
 
     def channel_changed(self, value):
-        new_ymin = value * self.main.vspace
-        new_ymax = value * self.main.vspace + (self.main.nchan + 1) * self.main.vspace
+        new_ymin = value
+        new_ymax = value + self.main.nchan + 2
         self.main.setYRange(new_ymin, new_ymax, padding=0)
 
     def update_nchan(self):
@@ -198,22 +199,32 @@ class RawViewBox(ViewBox):
 
 
 class RawPlot(PlotItem):
-    def __init__(self, raw, duration, nchan, ds, vspace, enable_cache, xrange_directly):
+    def __init__(self, raw, duration, nchan, ds, enable_cache):
         self.axis_items = {'bottom': TimeAxis(self),
                            'left': ChannelAxis(self)}
         self.clock_ticks = False
         super().__init__(viewBox=RawViewBox(self), axisItems=self.axis_items)
 
-
         self.raw = raw
+        # Compute scalings
+        self.scalings = _compute_scalings(scalings=dict(), inst=self.raw, remove_dc=True, duration=duration)
         self.data, self.times = self.raw.get_data(return_times=True)
-        self.data *= -1e6  # Scale EEG-Data and invert to list channels from the top
+        # Apply scalings
+        ch_types = self.raw.get_channel_types()
+        stims = ch_types == 'stim'
+        norms = np.vectorize(self.scalings.__getitem__)(ch_types)
+        norms[stims] = self.data[stims].max(axis=-1)
+        norms[norms == 0] = 1
+        self.data /= 2 * norms[:, np.newaxis]
+        # Apply remove_dc
+        self.data -= self.data.mean(axis=1, keepdims=True)
+        # Invert data for display from the top (invertedY)
+        self.data *= -1
+
         self.duration = duration
         self.nchan = nchan
         self.ds = ds
-        self.vspace = vspace
         self.enable_cache = enable_cache
-        self.xrange_directly = xrange_directly
 
         self.lines = OrderedDict()
         self._hscroll_dir = 1
@@ -223,35 +234,31 @@ class RawPlot(PlotItem):
         self.hideButtons()
 
         self.xmax = self.times[-1]
-        self.ymax = (self.data.shape[0] + 1) * self.vspace
+        self.ymax = self.data.shape[0] + 2  # Add one empty line as padding at top and bottom
 
         self.setXRange(0, duration, padding=0)
         self.setLimits(xMin=0, xMax=self.xmax,
                        yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
-        self.setYRange(0, (self.nchan + 1) * self.vspace, padding=0)
-        for idx, (ch_data, ch_name) in \
-                enumerate(zip(self.data[:self.nchan],
-                              self.raw.ch_names[:self.nchan])):
-            ypos = idx * self.vspace + self.vspace
-            self.add_line(ypos, ch_data, ch_name)
+        self.setYRange(0, self.nchan + 2, padding=0)
+        for ch_idx, (ch_data, ch_name) in enumerate(zip(self.data[:self.nchan],
+                                    self.raw.ch_names[:self.nchan])):
+            self.add_line(ch_idx, ch_data, ch_name)
 
         self.sigXRangeChanged.connect(self.xrange_changed)
         self.sigYRangeChanged.connect(self.yrange_changed)
 
-    def _get_ch_name(self, ypos):
-        ch_name = self.raw.ch_names[int(ypos // self.vspace) - 1]
+    def _load_data(self):
+        pass
 
-        return ch_name
-
-    def add_line(self, ypos, ch_data, ch_name):
-        item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos, sfreq=self.raw.info['sfreq'],
-                            ds=self.ds, isbad=ch_name in self.raw.info['bads'])
+    def add_line(self, ch_idx, ch_data, ch_name):
+        ypos = ch_idx + 1
+        item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos,
+                            sfreq=self.raw.info['sfreq'], ds=self.ds,
+                            isbad=ch_name in self.raw.info['bads'])
         if self.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
         item.sigClicked.connect(self.bad_changed)
-        if self.xrange_directly:
-            self.sigXRangeChanged.connect(item.xrange_changed)
         self.lines[ch_name] = (item, ypos)
         self.nchan = len(self.lines)
         self.addItem(item)
@@ -284,33 +291,36 @@ class RawPlot(PlotItem):
         self._addrm_bad_channel(line.ch_name, add=line.isbad)
 
     def xrange_changed(self, _, xrange):
-        if not self.xrange_directly:
-            for ch_name in self.lines:
-                line = self.lines[ch_name][0]
-                line.xrange_changed(None, xrange)
+        for ch_name in self.lines:
+            line = self.lines[ch_name][0]
+            line.xrange_changed(None, xrange)
 
     def yrange_changed(self, _, yrange):
-        ymin, ymax = yrange
+        ymin, ymax = int(yrange[0]), int(yrange[1])
         remove_lines = [k for k in self.lines
                         if self.lines[k][1] <= ymin
-                        or self.lines[k][1] >= ymax]
+                        or self.lines[k][1] >= ymax - 1]
         for ch_name in remove_lines:
             self.remove_line(ch_name)
-        min_ch_idx = min([v[1] for v in self.lines.values()]) // self.vspace
-        ymin_ch_idx = int(ymin // self.vspace) + 1
-        for idx in [i for i in reversed(range(ymin_ch_idx, min_ch_idx)) if i >= 0]:
-            ypos = idx * self.vspace
-            ch_name = self._get_ch_name(ypos)
-            self.add_line(ypos, self.data[idx - 1], ch_name)
-            self.lines.move_to_end(ch_name, last=False)
 
-        max_ch_idx = max([v[1] for v in self.lines.values()]) // self.vspace + 1
-        ymax_ch_idx = int(ymax // self.vspace)
-        for idx in [i for i in range(max_ch_idx, ymax_ch_idx)
-                    if i <= len(self.data)]:
-                ypos = idx * self.vspace
-                ch_name = self._get_ch_name(ypos)
-                self.add_line(ypos, self.data[idx - 1], ch_name)
+        if len(self.lines) > 0:
+            min_ch_idx = min([v[1] for v in self.lines.values()]) - 1
+            ymin_ch_idx = ymin
+            for idx in reversed(range(ymin_ch_idx, min_ch_idx)):
+                ch_name = self.raw.ch_names[idx]
+                self.add_line(idx, self.data[idx], ch_name)
+                self.lines.move_to_end(ch_name, last=False)
+
+            max_ch_idx = max([v[1] for v in self.lines.values()])
+            ymax_ch_idx = ymax - 2
+            for idx in range(max_ch_idx, ymax_ch_idx):
+                ch_name = self.raw.ch_names[idx]
+                self.add_line(idx, self.data[idx], ch_name)
+                self.lines.move_to_end(ch_name, last=True)
+        else:
+            for idx in range(ymin, ymax):
+                ch_name = self.raw.ch_names[idx]
+                self.add_line(idx, self.data[idx], ch_name)
                 self.lines.move_to_end(ch_name, last=True)
 
     def hscroll(self, step):
@@ -332,9 +342,9 @@ class RawPlot(PlotItem):
             self.setYRange(*yrange, padding=0)
 
     def infini_vscroll(self, step, parent):
-        if parent.n_bm % (int(self.ymax / (step * self.vspace)) - self.nchan) == 0:
+        if parent.n_bm % (int(self.ymax / step) - self.nchan) == 0:
             self._vscroll_dir *= -1
-        step *= self._vscroll_dir * self.vspace
+        step *= self._vscroll_dir
         self.vscroll(step)
 
     def change_duration(self, step):
@@ -353,11 +363,11 @@ class RawPlot(PlotItem):
 
     def change_nchan(self, step):
         ymin, ymax = self.vb.viewRange()[1]
-        newymax = ymax + step * self.vspace
-        newymin = ymin - step * self.vspace
-        if self.vspace < newymax < self.ymax:
+        newymax = ymax + step
+        newymin = ymin - step
+        if 2 < newymax < self.ymax:
             ymax = newymax
-        elif self.vspace < newymin < self.ymax:
+        elif 0 < newymin < self.ymax:
             ymin = newymin
         else:
             return
@@ -367,12 +377,11 @@ class RawPlot(PlotItem):
 
 
 class PyQtGraphPtyp(QWidget):
-    def __init__(self, raw, duration=20, nchan=30, ds=1, vspace=50, enable_cache=False, antialiasing=False,
-                 use_opengl=False, xrange_directly=False):
+    def __init__(self, raw, duration=20, nchan=30, ds=1, enable_cache=False, antialiasing=False,
+                 use_opengl=False):
         super().__init__()
         self.view = GraphicsView(background='w')
-        self.plot_item = RawPlot(raw=raw, duration=duration, nchan=nchan, ds=ds, vspace=vspace,
-                                 enable_cache=enable_cache, xrange_directly=xrange_directly)
+        self.plot_item = RawPlot(raw=raw, duration=duration, nchan=nchan, ds=ds, enable_cache=enable_cache)
         self.plot_item.sigXRangeChanged.connect(self.xrange_changed)
         self.plot_item.sigYRangeChanged.connect(self.yrange_changed)
         self.view.setCentralItem(self.plot_item)
@@ -391,5 +400,5 @@ class PyQtGraphPtyp(QWidget):
         self.time_bar.update_duration()
 
     def yrange_changed(self, _, yrange):
-        self.channel_bar.setValue(yrange[0] // self.plot_item.vspace)
+        self.channel_bar.setValue(yrange[0])
         self.channel_bar.update_nchan()

@@ -5,7 +5,7 @@
 - [X] FPS Horizontal Scrolling
 - [X] FPS Vertical Scrolling
 - [X] Time Zooming (X-Axis)
-- [ ] Time Zooming (Y-Axis)
+- [X] Time Zooming (Y-Axis)
 
 ## Basic Features
 - [X] Multiple Line-Plots
@@ -13,10 +13,11 @@
 - [X] Y-Axes (with channel-names)
 - [X] Vertical Scrolling (Only load shown channels in ViewBox)
 - [X] Horizontal Scrollbar
-- [ ] Vertical Scrollbar
+- [X] Vertical Scrollbar
 - [ ] custom Scrollbars with markers inside
 - [X] Zoom Duration/N-Channels
 - [ ] Vertical Line
+- [ ] Event Lines
 - [X] Mark Channels (including channel-label)
 - [ ] Area Selection
 - [ ] Marking Bad Epochs + Autoreject (Bad-Segment with subsegments per channel)
