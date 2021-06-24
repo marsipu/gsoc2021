@@ -276,9 +276,9 @@ class RawPlot(PlotItem):
         # Update line color
         line.update_bad_color()
 
-        # Update Channel-Axis (TODO: Is there a better way? .update() doesn't seem to work)
-        self.axes['left']['item'].hide()
-        self.axes['left']['item'].show()
+        # Update Channel-Axis
+        self.axes['left']['item'].picture = None
+        self.axes['left']['item'].update()
 
     def bad_changed(self, line, ev):
         self._addrm_bad_channel(line.ch_name, add=line.isbad)
