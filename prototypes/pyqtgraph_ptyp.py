@@ -339,24 +339,29 @@ class RawPlot(PlotItem):
 
     def change_duration(self, step):
         xmin, xmax = self.vb.viewRange()[0]
-        if xmax != self.xmax or step < 0:
-            xmax += step
-        elif xmin != 0:
-            xmin -= step
+        newxmax = xmax + step
+        newxmin = xmin - step
+        if 0 < newxmax < self.xmax:
+            xmax = newxmax
+        elif 0 < newxmin < self.xmax:
+            xmin = newxmin
         else:
             return
-        self.duration += step
 
+        self.duration += step
         self.setXRange(xmin, xmax, padding=0)
 
     def change_nchan(self, step):
         ymin, ymax = self.vb.viewRange()[1]
-        if ymax != self.ymax or step < 0:
-            ymax += step * self.vspace
-        elif ymin != 0:
-            ymin -= step * self.vspace
+        newymax = ymax + step * self.vspace
+        newymin = ymin - step * self.vspace
+        if self.vspace < newymax < self.ymax:
+            ymax = newymax
+        elif self.vspace < newymin < self.ymax:
+            ymin = newymin
         else:
             return
+
         self.nchan += step
         self.setYRange(ymin, ymax, padding=0)
 
@@ -369,6 +374,7 @@ class PyQtGraphPtyp(QWidget):
         self.plot_item = RawPlot(raw=raw, duration=duration, nchan=nchan, ds=ds, vspace=vspace,
                                  enable_cache=enable_cache, xrange_directly=xrange_directly)
         self.plot_item.sigXRangeChanged.connect(self.xrange_changed)
+        self.plot_item.sigYRangeChanged.connect(self.yrange_changed)
         self.view.setCentralItem(self.plot_item)
         self.view.setAntialiasing(antialiasing)
         self.view.useOpenGL(use_opengl)
@@ -385,5 +391,5 @@ class PyQtGraphPtyp(QWidget):
         self.time_bar.update_duration()
 
     def yrange_changed(self, _, yrange):
-        self.channel_bar.setValue(yrange[0])
+        self.channel_bar.setValue(yrange[0] // self.plot_item.vspace)
         self.channel_bar.update_nchan()
