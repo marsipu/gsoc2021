@@ -1,4 +1,7 @@
 # Week 3
+- add all_data parameter to compare QScene-Scrolling performance
+- add qt-prototype to investigate OpenGL-Issue and compare
+
 ## Thursday, 2021-06-24
 - fix scrollbar-issues
 - add scalings for multiple types
