@@ -12,9 +12,11 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
                              QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
                              QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
+from mne.viz.utils import _compute_scalings
 from pyqtgraph import BarGraphItem, ErrorBarItem, LegendItem, PlotDataItem, PlotWidget, colormap, mkPen, time
 
 from prototypes.pyqtgraph_ptyp import PyQtGraphPtyp
+from prototypes.qt_ptyp import PyQtPtyp
 
 
 class EvalParam(QLineEdit):
@@ -60,10 +62,7 @@ class KwargDialog(QDialog):
         self.show()
 
     def closeEvent(self, event):
-        old_widget = self.pw.takeCentralWidget()
-        old_widget.deleteLater()
-        del old_widget
-        self.pw.setCentralWidget(PyQtGraphPtyp(self.pw.raw, **self.pw.backend_kwargs))
+        self.pw.load_backend()
         event.accept()
 
 
@@ -237,11 +236,21 @@ class ResultDialog(QDialog):
 class BenchmarkWindow(QMainWindow):
     finishedBm = pyqtSignal()
     finishedRun = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
 
         self.raw = None
+        self.data = None
+        self.times = None
         self.load_raw()
+
+        self.available_backends = {'PyQtGraph': PyQtGraphPtyp,
+                                   'PyQt': PyQtPtyp}
+        self.backend_name = 'PyQtGraph'
+        self.backend_kwargs = dict()
+
+        self.load_backend()
 
         self.start_time = None
         self.last_time = None
@@ -251,11 +260,6 @@ class BenchmarkWindow(QMainWindow):
 
         # limit for change duration/n-channel benchmarks (stays inside this range)
         self.change_limit = 10
-
-        # Add pyqtgraph-backend
-        parameters = inspect.signature(PyQtGraphPtyp.__init__).parameters
-        self.backend_kwargs = {p: parameters[p].default for p in parameters if parameters[p].default != inspect._empty}
-        self.setCentralWidget(PyQtGraphPtyp(self.raw, **self.backend_kwargs))
 
         self.bm_run = None
         self.stop_multi_run = False
@@ -284,7 +288,41 @@ class BenchmarkWindow(QMainWindow):
                 self.raw = mne.io.read_raw(raw_fname, preload=True)
                 self.raw.filter(1, None, n_jobs=-1)
                 self.raw.save(raw_hp_filtered_path)
-            # self.raw.pick_types(eeg=True)
+
+            # Compute scalings
+            self.scalings = _compute_scalings(scalings=dict(),
+                                              inst=self.raw, remove_dc=True)
+            self.data, self.times = self.raw.get_data(return_times=True)
+            # Apply scalings
+            ch_types = self.raw.get_channel_types()
+            stims = ch_types == 'stim'
+            norms = np.vectorize(self.scalings.__getitem__)(ch_types)
+            norms[stims] = self.data[stims].max(axis=-1)
+            norms[norms == 0] = 1
+            self.data /= 2 * norms[:, np.newaxis]
+            # Apply remove_dc
+            self.data -= self.data.mean(axis=1, keepdims=True)
+
+    def load_backend(self):
+        backend_class = self.available_backends[self.backend_name]
+        # Get backend parameters (all parameters with default-value)
+        parameters = inspect.signature(backend_class.__init__).parameters
+        backend_defaults = {p: parameters[p].default for p in parameters
+                            if parameters[p].default != inspect._empty}
+        # Load backend_kwargs from Benchmark-Class if available
+        if self.backend_kwargs:
+            backend_defaults = {k: self.backend_kwargs[k] if k in self.backend_kwargs
+                                else backend_defaults[k] for k in backend_defaults}
+        self.backend_kwargs = backend_defaults
+
+        # Initialize backend
+        if self.centralWidget() is not None:
+            self.takeCentralWidget()
+            self.backend.deleteLater()
+            del self.backend
+
+        self.backend = backend_class(self.raw, self.data, self.times, **self.backend_kwargs)
+        self.setCentralWidget(self.backend)
 
     def get_bm_cmbx(self):
         bm_cmbx = QComboBox()
@@ -299,6 +337,12 @@ class BenchmarkWindow(QMainWindow):
 
     def init_toolbar(self):
         self.toolbar = self.addToolBar('Tools')
+
+        backend_cmbx = QComboBox()
+        backend_cmbx.addItems(self.available_backends.keys())
+        backend_cmbx.setCurrentText(self.backend_name)
+        backend_cmbx.currentTextChanged.connect(self.backend_changed)
+        self.toolbar.addWidget(backend_cmbx)
 
         aedit_kwargs = QAction('Edit Parameters', parent=self)
         aedit_kwargs.triggered.connect(partial(KwargDialog, self))
@@ -351,13 +395,15 @@ class BenchmarkWindow(QMainWindow):
         ampl_plot.triggered.connect(self.mpl_plot)
         self.toolbar.addAction(ampl_plot)
 
+    def backend_changed(self, backend):
+        self.backend_name = backend
+        self.load_backend()
+
     def change_duration(self, step):
-        item = self.centralWidget()
-        item.plot_item.change_duration(step)
+        self.backend.plot_item.change_duration(step)
 
     def change_nchan(self, step):
-        item = self.centralWidget()
-        item.plot_item.change_nchan(step)
+        self.backend.plot_item.change_nchan(step)
 
     def show_fps(self):
         now = time()
@@ -372,7 +418,7 @@ class BenchmarkWindow(QMainWindow):
             else:
                 s = np.clip(dt * 3., 0, 1)
                 self.fps = self.fps * (1 - s) + (1.0 / dt) * s
-            self.centralWidget().plot_item.setTitle(f'{self.fps:.2f} fps')
+            self.backend.plot_item.setTitle(f'{self.fps:.2f} fps')
             if self.bm_run:
                 self.benchmark_results[self.bm_run]['x'].append(now - self.start_time)
                 self.benchmark_results[self.bm_run]['y'].append(self.fps)
@@ -399,27 +445,28 @@ class BenchmarkWindow(QMainWindow):
             func(self, *args, **kwargs)
             self.show_fps()
             self.check_break()
+
         return wrapper
 
     @benchmark
     def benchmark_hscroll(self):
-        self.centralWidget().plot_item.infini_hscroll(1, self)
+        self.backend.plot_item.infini_hscroll(1, self)
 
     @benchmark
     def benchmark_vscroll(self):
-        self.centralWidget().plot_item.infini_vscroll(1, self)
+        self.backend.plot_item.infini_vscroll(1, self)
 
     @benchmark
     def benchmark_duration_change(self):
         if self.n_bm % self.change_limit == 0:
             self.duration_bm *= -1
-        self.centralWidget().plot_item.change_duration(self.duration_bm)
+        self.backend.plot_item.change_duration(self.duration_bm)
 
     @benchmark
     def benchmark_nchan_change(self):
         if self.n_bm % self.change_limit == 0 and self.n_bm != 0:
             self.nchan_bm *= -1
-        self.centralWidget().plot_item.change_nchan(self.nchan_bm)
+        self.backend.plot_item.change_nchan(self.nchan_bm)
 
     def start_single_benchmark(self):
         self.n_bm = 1
@@ -456,7 +503,7 @@ class BenchmarkWindow(QMainWindow):
                     # Add to result-dict
                     self.benchmark_results[self.bm_run] = {'x': list(),
                                                            'y': list()}
-                    self.setCentralWidget(PyQtGraphPtyp(self.raw, **kwargs))
+                    self.load_backend()
                     self.bm_timer = QTimer()
                     self.bm_timer.timeout.connect(getattr(self, bm_func))
                     self.bm_timer.start(0)

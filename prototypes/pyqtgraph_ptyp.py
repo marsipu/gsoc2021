@@ -16,7 +16,6 @@ class RawCurveItem(PlotCurveItem):
         self.ch_name = ch_name
         self.ypos = ypos
         self.sfreq = sfreq
-        self.limit = 10000  # maximum number of samples to be plotted
         self.ds = ds
         self.isbad = isbad
         self.update_bad_color()
@@ -43,13 +42,9 @@ class RawCurveItem(PlotCurveItem):
         else:
             self.setPen('k')
 
-    def set_first_time(self):
-        viewbox = self.getViewBox()
-        if viewbox is None or not hasattr(viewbox, 'viewRange'):
-            return
-
-        xrange = viewbox.viewRange()[0]
-        self.xrange_changed(None, xrange)
+    def set_full_data(self):
+        self.setData(self.times, self.data)
+        self.setPos(0, self.ypos)
 
     def xrange_changed(self, _, xrange):
         xmin, xmax = xrange
@@ -199,31 +194,24 @@ class RawViewBox(ViewBox):
 
 
 class RawPlot(PlotItem):
-    def __init__(self, raw, duration, nchan, ds, enable_cache):
+    def __init__(self, raw, data, times, duration, nchan, ds, all_data,
+                 enable_cache):
         self.axis_items = {'bottom': TimeAxis(self),
                            'left': ChannelAxis(self)}
         self.clock_ticks = False
         super().__init__(viewBox=RawViewBox(self), axisItems=self.axis_items)
 
         self.raw = raw
-        # Compute scalings
-        self.scalings = _compute_scalings(scalings=dict(), inst=self.raw, remove_dc=True, duration=duration)
-        self.data, self.times = self.raw.get_data(return_times=True)
-        # Apply scalings
-        ch_types = self.raw.get_channel_types()
-        stims = ch_types == 'stim'
-        norms = np.vectorize(self.scalings.__getitem__)(ch_types)
-        norms[stims] = self.data[stims].max(axis=-1)
-        norms[norms == 0] = 1
-        self.data /= 2 * norms[:, np.newaxis]
-        # Apply remove_dc
-        self.data -= self.data.mean(axis=1, keepdims=True)
+        self.data = data
+        self.times = times
+
         # Invert data for display from the top (invertedY)
         self.data *= -1
 
         self.duration = duration
         self.nchan = nchan
         self.ds = ds
+        self.all_data = all_data
         self.enable_cache = enable_cache
 
         self.lines = OrderedDict()
@@ -241,28 +229,35 @@ class RawPlot(PlotItem):
                        yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
         self.setYRange(0, self.nchan + 2, padding=0)
-        for ch_idx, (ch_data, ch_name) in enumerate(zip(self.data[:self.nchan],
-                                    self.raw.ch_names[:self.nchan])):
+        if self.all_data:
+            max_idx = len(self.data)
+        else:
+            max_idx = self.nchan
+        for ch_idx, (ch_data, ch_name) in enumerate(zip(self.data[:max_idx],
+                                    self.raw.ch_names[:max_idx])):
             self.add_line(ch_idx, ch_data, ch_name)
 
-        self.sigXRangeChanged.connect(self.xrange_changed)
-        self.sigYRangeChanged.connect(self.yrange_changed)
-
-    def _load_data(self):
-        pass
+        if not self.all_data:
+            self.sigXRangeChanged.connect(self.xrange_changed)
+            self.sigYRangeChanged.connect(self.yrange_changed)
 
     def add_line(self, ch_idx, ch_data, ch_name):
         ypos = ch_idx + 1
         item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos,
                             sfreq=self.raw.info['sfreq'], ds=self.ds,
                             isbad=ch_name in self.raw.info['bads'])
+        self.lines[ch_name] = (item, ypos)
+
+        if self.all_data:
+            item.set_full_data()
+        else:
+            item.xrange_changed(None, self.getViewBox().viewRange()[0])
+            self.nchan = len(self.lines)
+
         if self.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
         item.sigClicked.connect(self.bad_changed)
-        self.lines[ch_name] = (item, ypos)
-        self.nchan = len(self.lines)
         self.addItem(item)
-        item.set_first_time()
 
     def remove_line(self, ch_name):
         self.removeItem(self.lines[ch_name][0])
@@ -377,11 +372,13 @@ class RawPlot(PlotItem):
 
 
 class PyQtGraphPtyp(QWidget):
-    def __init__(self, raw, duration=20, nchan=30, ds=1, enable_cache=False, antialiasing=False,
-                 use_opengl=False):
+    def __init__(self, raw, data, times, duration=20,
+                 nchan=30, ds=1, all_data=False, enable_cache=False,
+                 antialiasing=False, use_opengl=False):
         super().__init__()
         self.view = GraphicsView(background='w')
-        self.plot_item = RawPlot(raw=raw, duration=duration, nchan=nchan, ds=ds, enable_cache=enable_cache)
+        self.plot_item = RawPlot(raw=raw, data=data, times=times, duration=duration, nchan=nchan,
+                                 ds=ds, all_data=all_data, enable_cache=enable_cache)
         self.plot_item.sigXRangeChanged.connect(self.xrange_changed)
         self.plot_item.sigYRangeChanged.connect(self.yrange_changed)
         self.view.setCentralItem(self.plot_item)
