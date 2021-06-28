@@ -66,6 +66,7 @@ class RawCurveItem(PlotCurveItem):
 
     def mouseClickEvent(self, ev):
         if not self.clickable or ev.button() != Qt.MouseButton.LeftButton:
+            ev.ignore()
             return
         if self.mouseShape().contains(ev.pos()):
             ev.accept()

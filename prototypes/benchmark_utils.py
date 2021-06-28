@@ -7,13 +7,12 @@ from os.path import isfile
 
 import mne
 import numpy as np
-from PyQt5.QtCore import QAbstractListModel, QModelIndex, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
-                             QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+                             QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
                              QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
 from mne.viz.utils import _compute_scalings
-from pyqtgraph import BarGraphItem, ErrorBarItem, LegendItem, PlotDataItem, PlotWidget, colormap, mkPen, time
+from pyqtgraph import PlotDataItem, PlotWidget, colormap, mkPen, time
 
 from prototypes.pyqtgraph_ptyp import PyQtGraphPtyp
 from prototypes.qt_ptyp import PyQtPtyp

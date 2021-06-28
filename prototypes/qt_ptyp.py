@@ -6,7 +6,7 @@ import sys
 from collections import OrderedDict
 
 from PyQt5.QtCore import QRectF
-from PyQt5.QtWidgets import QGraphicsItem, QWidget
+from PyQt5.QtWidgets import QGraphicsItem, QGridLayout, QWidget
 from qtpy.QtWidgets import (QApplication, QGraphicsPathItem, QGraphicsScene,
                             QGraphicsView, QOpenGLWidget)
 from qtpy.QtGui import QPainterPath, QColor, QSurfaceFormat, QPainter, QPen
@@ -14,10 +14,11 @@ from qtpy.QtCore import Qt
 import numpy as np
 import mne
 
+from prototypes.pyqtgraph_ptyp import ChannelScrollBar, TimeScrollBar
+
 
 class Line(QGraphicsPathItem):
-    def __init__(self, data, times, ch_name, ypos, sfreq, ds,
-                 all_data, isbad=False):
+    def __init__(self, data, times, ch_name, ypos, sfreq, ds, isbad=False):
         super().__init__()
         self._data = data
         self._times = times
@@ -27,6 +28,8 @@ class Line(QGraphicsPathItem):
         self.ds = ds
         self.isbad = isbad
         self.update_bad_color()
+
+        self.path = None
 
     @property
     def data(self):
@@ -48,12 +51,14 @@ class Line(QGraphicsPathItem):
         self.make_path(self.times, self.data)
 
     def make_path(self, x, y):
-        path = QPainterPath()
-        y += self.ypos
-        path.moveTo(x[0], y[0])
+        if self.path:
+            del self.path
+        self.path = QPainterPath()
+        y = y + self.ypos
+        self.path.moveTo(x[0], y[0])
         for point in zip(x[1:], y[1:]):
-            path.lineTo(*point)
-        self.setPath(path)
+            self.path.lineTo(*point)
+        self.setPath(self.path)
         self.setPos(0, self.ypos)
 
     def update_bad_color(self):
@@ -80,10 +85,13 @@ class Line(QGraphicsPathItem):
 
         self.make_path(visible_x, visible_y)
 
+    def setXRange(self, xmin, xmax):
+        self.xrange_changed(xmin, xmax)
 
-class PyQtPtyp(QGraphicsView):
+
+class PyQtPlot(QGraphicsView):
     def __init__(self, raw, data, times, duration=20, nchan=30, ds=1,
-                 all_data=False, enable_cache=False, use_opengl=False):
+                 enable_cache=False, use_opengl=False):
         super().__init__()
         self.ensureVisible(0, 0, 1, 1)
         self.raw = raw
@@ -92,27 +100,25 @@ class PyQtPtyp(QGraphicsView):
         self.duration = duration
         self.nchan = nchan
         self.ds = ds
-        self.all_data = all_data
         self.enable_cache = enable_cache
         self.use_opengl = use_opengl
 
         self.lines = OrderedDict()
-        self.setScene(QGraphicsScene())
+
+        self.xmax = self.times[-1]
+        self.ymax = self.data.shape[0] + 2  # Add one empty line as padding at top and bottom
+
+        self.scene = QGraphicsScene()
+        self.setScene(self.scene)
         # self.setSceneRect(QRectF(0, 0, duration, nchan))
-        self.fitInView(QRectF(0, 0, duration, nchan))
+        self.fitInView(self.scene.itemsBoundingRect())
 
-        if self.all_data:
-            max_idx = len(self.data)
-        else:
-            max_idx = self.nchan
-
-        for ch_idx, (ch_data, ch_name) in enumerate(zip(self.data[:max_idx],
-                                                        self.raw.ch_names[:max_idx])):
+        for ch_idx, (ch_data, ch_name) in enumerate(zip(self.data[:self.nchan],
+                                                        self.raw.ch_names[:self.nchan])):
             self.add_line(ch_idx, ch_data, ch_name)
 
-        if not self.all_data:
-            self.horizontalScrollBar().valueChanged.connect(self.xrange_changed)
-            self.verticalScrollBar().valueChanged.connect(self.yrange_changed)
+        self.horizontalScrollBar().valueChanged.connect(self.xrange_changed)
+        self.verticalScrollBar().valueChanged.connect(self.yrange_changed)
 
         if self.use_opengl:
             # enable OpenGL
@@ -122,27 +128,28 @@ class PyQtPtyp(QGraphicsView):
             opengl.setFormat(fmt)
             self.setViewport(opengl)
 
+    def paintEvent(self, event):
+        if self.scene:
+            self.fitInView(self.scene.sceneRect())
+        super().paintEvent(event)
+
     def add_line(self, ch_idx, ch_data, ch_name):
         ypos = ch_idx + 1
         item = Line(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos,
-                    sfreq=self.raw.info['sfreq'], ds=self.ds, all_data=self.all_data,
-                    isbad=ch_name in self.raw.info['bads'])
+                    sfreq=self.raw.info['sfreq'], ds=self.ds, isbad=ch_name in self.raw.info['bads'])
         self.lines[ch_name] = (item, ypos)
         if self.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
-        if self.all_data:
-            item.set_full_data()
-        else:
-            xmin = self.horizontalScrollBar().value()
-            xmax = xmin + self.duration
-            item.xrange_changed(xmin, xmax)
-            self.nchan = len(self.lines)
+        xmin = self.horizontalScrollBar().value()
+        xmax = xmin + self.duration
+        item.xrange_changed(xmin, xmax)
+        self.nchan = len(self.lines)
 
-        self.scene().addItem(item)
+        self.scene.addItem(item)
 
     def remove_line(self, ch_name):
-        self.scene().removeItem(self.lines[ch_name][0])
+        self.scene.removeItem(self.lines[ch_name][0])
         self.lines.pop(ch_name)
         self.nchan = len(self.lines)
 
@@ -151,6 +158,10 @@ class PyQtPtyp(QGraphicsView):
         for ch_name in self.lines:
             line = self.lines[ch_name][0]
             line.xrange_changed(xmin, xmax)
+        self.scene.update()
+
+    def setXRange(self, xmin, xmax, padding):
+        self.xrange_changed(xmin)
 
     def yrange_changed(self, ymin):
         ymax = ymin + self.nchan
@@ -235,3 +246,18 @@ class PyQtPtyp(QGraphicsView):
             self.translate(0, 100)
         elif event.key() == Qt.Key_Escape:
             self.close()
+
+
+class PyQtPtyp(QWidget):
+    def __init__(self, raw, data, times, duration=20,
+                 nchan=30, ds=1, enable_cache=False, use_opengl=False):
+        super().__init__()
+        self.plot = PyQtPlot(raw=raw, data=data, times=times, duration=duration, nchan=nchan,
+                             ds=ds, enable_cache=enable_cache, use_opengl=use_opengl)
+        layout = QGridLayout()
+        layout.addWidget(self.plot, 0, 0)
+        self.time_bar = TimeScrollBar(self.plot)
+        layout.addWidget(self.time_bar, 1, 0)
+        self.channel_bar = ChannelScrollBar(self.plot)
+        layout.addWidget(self.channel_bar, 0, 1)
+        self.setLayout(layout)
