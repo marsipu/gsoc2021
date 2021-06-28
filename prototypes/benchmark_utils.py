@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
 from mne.viz.utils import _compute_scalings
 from pyqtgraph import PlotDataItem, PlotWidget, colormap, mkPen, time
 
-from prototypes.pyqtgraph_ptyp import PyQtGraphPtyp
+from prototypes.pyqtgraph_ptyp import HelpDialog, PyQtGraphPtyp
 from prototypes.qt_ptyp import PyQtPtyp
 
 
@@ -362,6 +362,11 @@ class BenchmarkWindow(QMainWindow):
         aincr_nchan = QAction('+Channels', parent=self)
         aincr_nchan.triggered.connect(partial(self.change_nchan, 1))
         self.toolbar.addAction(aincr_nchan)
+
+        # Not compatible to other backends, must find better solution for integration into layout
+        ahelp = QAction('Help', parent=self)
+        ahelp.triggered.connect(partial(HelpDialog, self.backend))
+        self.toolbar.addAction(ahelp)
 
         self.toolbar.addSeparator()
 

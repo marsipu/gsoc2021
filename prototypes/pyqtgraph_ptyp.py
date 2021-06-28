@@ -1,9 +1,14 @@
 import datetime
+import platform
 from collections import OrderedDict
+from functools import partial
 
 import numpy as np
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGraphicsItem, QGraphicsProxyWidget, QGridLayout, QLabel, QScrollBar, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QDialog, QFormLayout, QGraphicsItem, QGraphicsProxyWidget, QGridLayout, QLabel, QPushButton, \
+    QScrollBar, \
+    QSizePolicy, QVBoxLayout, \
+    QWidget
 from mne.viz.utils import _compute_scalings
 from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox, functions)
 
@@ -159,6 +164,11 @@ class TimeScrollBar(QScrollBar):
 
     def update_duration(self):
         self.setPageStep(self.main.duration)
+        self.setMaximum(self.main.xmax - self.main.duration)
+
+    def keyPressEvent(self, event):
+        # Let main handle the keypress
+        event.ignore()
 
 
 class ChannelScrollBar(QScrollBar):
@@ -180,6 +190,11 @@ class ChannelScrollBar(QScrollBar):
 
     def update_nchan(self):
         self.setPageStep(self.main.nchan)
+        self.setMaximum(self.main.ymax - self.main.nchan - 2)
+
+    def keyPressEvent(self, event):
+        # Let main handle the keypress
+        event.ignore()
 
 
 class RawViewBox(ViewBox):
@@ -188,10 +203,12 @@ class RawViewBox(ViewBox):
         self.main = main
 
     def keyPressEvent(self, ev):
-        ev.accept()
         if ev.text() == 't':
             self.main.clock_ticks = not self.main.clock_ticks
             self.sigXRangeChanged.emit(self, tuple(self.state['viewRange'][0]))
+        else:
+            # Let main handle the keypress
+            ev.ignore()
 
 
 class RawPlot(PlotItem):
@@ -320,10 +337,17 @@ class RawPlot(PlotItem):
                 self.lines.move_to_end(ch_name, last=True)
 
     def hscroll(self, step):
-        xrange = self.vb.viewRange()[0]
-        xrange = [i + step for i in xrange]
-        if all([0 <= i <= self.xmax for i in xrange]):
-            self.setXRange(*xrange, padding=0)
+        # Get current range and add step to it
+        xmin, xmax = [i + step for i in self.vb.viewRange()[0]]
+
+        if xmin < 0:
+            xmin = 0
+            xmax = xmin + self.duration
+        elif xmax > self.xmax:
+            xmax = self.xmax
+            xmin = xmax - self.duration
+
+        self.setXRange(xmin, xmax, padding=0)
 
     def infini_hscroll(self, step, parent):
         if parent.n_bm % (int(self.xmax / step) - self.duration) == 0:
@@ -332,10 +356,17 @@ class RawPlot(PlotItem):
         self.hscroll(step)
 
     def vscroll(self, step):
-        yrange = self.vb.viewRange()[1]
-        yrange = [i + step for i in yrange]
-        if all([0 <= i <= self.ymax for i in yrange]):
-            self.setYRange(*yrange, padding=0)
+        # Get current range and add step to it
+        ymin, ymax = [i + step for i in self.vb.viewRange()[1]]
+
+        if ymin < 0:
+            ymin = 0
+            ymax = ymin + self.nchan + 2
+        elif ymax > self.ymax:
+            ymax = self.ymax
+            ymin = ymax - self.nchan - 2
+
+        self.setYRange(ymin, ymax, padding=0)
 
     def infini_vscroll(self, step, parent):
         if parent.n_bm % (int(self.ymax / step) - self.nchan) == 0:
@@ -371,6 +402,26 @@ class RawPlot(PlotItem):
         self.nchan += step
         self.setYRange(ymin, ymax, padding=0)
 
+    def keyPressEvent(self, event):
+        # Let main handle the keypress
+        event.ignore()
+
+
+class HelpDialog(QDialog):
+    def __init__(self, main):
+        super().__init__(main)
+        self.main = main
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        self.init_ui()
+        self.open()
+
+    def init_ui(self):
+        layout = QFormLayout()
+        for key, text in self.main.keyboard_shortcuts:
+            layout.addRow(key, QLabel(text))
+        self.setLayout(layout)
+
 
 class PyQtGraphPtyp(QWidget):
     def __init__(self, raw, data, times, duration=20,
@@ -393,6 +444,29 @@ class PyQtGraphPtyp(QWidget):
         layout.addWidget(self.channel_bar, 0, 1)
         self.setLayout(layout)
 
+        is_mac = platform.system() == 'Darwin'
+        dur_keys = ('fn + ←', 'fn + →') if is_mac else ('Home', 'End')
+        ch_keys = ('fn + ↑', 'fn + ↓') if is_mac else ('Page up', 'Page down')
+        self.keyboard_shortcuts = [
+            ('←', 'Move left'),
+            ('→', 'Move right'),
+            ('Ctrl + ←', 'Move 1s left'),
+            ('Ctrl + →', 'Move 1s right'),
+            ('↑', 'Move up'),
+            ('↓', 'Move down'),
+            ('Ctrl + ↑', 'Move 1 channel up'),
+            ('Ctrl + ↓', 'Move 1 channel down'),
+            (dur_keys[0], 'Increase time-window'),
+            ('Ctrl + ' + dur_keys[0], 'Increase time-window'),
+            (dur_keys[1], 'Decrease time-window'),
+            ('Ctrl + ' + dur_keys[1], 'Decrease time-window'),
+            (ch_keys[0], 'Increase channel-count'),
+            ('Ctrl + ' + ch_keys[0], 'Increase channel-count'),
+            (ch_keys[1], 'Decrease channel-count'),
+            ('Ctrl + ' + ch_keys[1], 'Decrease channel-count'),
+            ('t', 'Toggle time format')
+        ]
+
     def xrange_changed(self, _, xrange):
         self.time_bar.setValue(xrange[0])
         self.time_bar.update_duration()
@@ -400,3 +474,45 @@ class PyQtGraphPtyp(QWidget):
     def yrange_changed(self, _, yrange):
         self.channel_bar.setValue(yrange[0])
         self.channel_bar.update_nchan()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Left:
+            if event.modifiers() == Qt.ControlModifier:
+                self.plot_item.hscroll(-1)
+            else:
+                self.plot_item.hscroll(-self.plot_item.duration / 2)
+        elif event.key() == Qt.Key_Right:
+            if event.modifiers() == Qt.ControlModifier:
+                self.plot_item.hscroll(1)
+            else:
+                self.plot_item.hscroll(self.plot_item.duration / 2)
+        elif event.key() == Qt.Key_Up:
+            if event.modifiers() == Qt.ControlModifier:
+                self.plot_item.vscroll(-1)
+            else:
+                self.plot_item.vscroll(-self.plot_item.nchan / 2)
+        elif event.key() == Qt.Key_Down:
+            if event.modifiers() == Qt.ControlModifier:
+                self.plot_item.vscroll(1)
+            else:
+                self.plot_item.vscroll(self.plot_item.nchan / 2)
+        elif event.key() == Qt.Key_Home:
+            if event.modifiers() == Qt.ControlModifier:
+                self.plot_item.change_duration(-1)
+            else:
+                self.plot_item.change_duration(-self.plot_item.duration / 4)
+        elif event.key() == Qt.Key_End:
+            if event.modifiers() == Qt.ControlModifier:
+                self.plot_item.change_duration(1)
+            else:
+                self.plot_item.change_duration(self.plot_item.duration / 4)
+        elif event.key() == Qt.Key_PageDown:
+            if event.modifiers() == Qt.ControlModifier:
+                self.plot_item.change_nchan(-1)
+            else:
+                self.plot_item.change_nchan(-self.plot_item.nchan / 4)
+        elif event.key() == Qt.Key_PageUp:
+            if event.modifiers() == Qt.ControlModifier:
+                self.plot_item.change_nchan(1)
+            else:
+                self.plot_item.change_nchan(self.plot_item.nchan / 4)
