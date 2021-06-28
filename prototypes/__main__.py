@@ -1,15 +1,18 @@
 import sys
 
-from PyQt5.QtWidgets import QApplication
-from pyqtgraph import mkQApp
+import pyqtgraph as pg
 
 from prototypes.benchmark_utils import BenchmarkWindow
 
+
 def main():
-    app = mkQApp()
+    pg.setConfigOption('enableExperimental', True)
+
+    app = pg.mkQApp()
     benchmark_win = BenchmarkWindow()
     benchmark_win.show()
     sys.exit(app.exec())
+
 
 if __name__ == '__main__':
     main()
