@@ -203,11 +203,10 @@ class ResultDialog(QDialog):
 
         self.plot_widget = PlotWidget()
         for idx, key in enumerate(self.pw.benchmark_results):
-            x = self.pw.benchmark_results[key]['x']
-            y = self.pw.benchmark_results[key]['y']
+            y = self.pw.benchmark_results[key]
             col_idx = int((len(cm.color) / len(self.pw.benchmark_results)) * idx)
             color = cm.getByIndex(col_idx)
-            data_item = PlotDataItem(x, y, pen=mkPen(color=color.name()))
+            data_item = PlotDataItem(y, pen=mkPen(color=color.name()))
             self.plot_widget.addItem(data_item)
         layout.addWidget(self.plot_widget)
 
@@ -251,7 +250,6 @@ class BenchmarkWindow(QMainWindow):
 
         self.load_backend()
 
-        self.start_time = None
         self.last_time = None
         self.fps = None
         self.n_bm = None
@@ -274,7 +272,7 @@ class BenchmarkWindow(QMainWindow):
         self.resize(width, height)
 
         self.finishedRun.connect(self.run_finished)
-        self.finishedBm.connect(partial(ResultDialog, self))
+        self.finishedBm.connect(self.bm_finished)
 
     def load_raw(self):
         if self.raw is None:
@@ -419,8 +417,7 @@ class BenchmarkWindow(QMainWindow):
                 self.fps = self.fps * (1 - s) + (1.0 / dt) * s
             self.backend.plot_item.setTitle(f'{self.fps:.2f} fps')
             if self.bm_run:
-                self.benchmark_results[self.bm_run]['x'].append(now - self.start_time)
-                self.benchmark_results[self.bm_run]['y'].append(self.fps)
+                self.benchmark_results[self.bm_run].append(self.fps)
 
     def get_n_limit(self):
         n = self.nbem_spinbox.value()
@@ -473,7 +470,6 @@ class BenchmarkWindow(QMainWindow):
         self.nchan_bm = 1
         self.bm_run = None
         selected_bm = self.benchmark_cmbx.currentText()
-        self.start_time = time()
         self.last_time = None
         self.bm_timer = QTimer()
         self.bm_timer.timeout.connect(getattr(self, selected_bm))
@@ -487,7 +483,6 @@ class BenchmarkWindow(QMainWindow):
             self._old_backend_kwargs = self.backend_kwargs
 
         if not self.stop_multi_run:
-            self.start_time = time()
             self.last_time = None
             self.n_bm = 1
             self.duration_bm = 2
@@ -502,8 +497,7 @@ class BenchmarkWindow(QMainWindow):
                     self.backend_kwargs = self.cp_bm_runs[bm_func][self.bm_run]
                     self.cp_bm_runs[bm_func].pop(self.bm_run)
                     # Add to result-dict
-                    self.benchmark_results[self.bm_run] = {'x': list(),
-                                                           'y': list()}
+                    self.benchmark_results[self.bm_run] = list()
                     self.load_backend()
                     self.bm_timer = QTimer()
                     self.bm_timer.timeout.connect(getattr(self, bm_func))
@@ -520,7 +514,7 @@ class BenchmarkWindow(QMainWindow):
             self.start_benchmark(False)
             self.n_bm = 1
 
-    def benchmark_finished(self):
+    def bm_finished(self):
         # Restore backend-kwargs as before the benchmark
         self.backend_kwargs = self._old_backend_kwargs
         self.load_backend()
