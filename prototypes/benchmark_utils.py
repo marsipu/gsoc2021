@@ -471,6 +471,7 @@ class BenchmarkWindow(QMainWindow):
         self.n_bm = 1
         self.duration_bm = 2
         self.nchan_bm = 1
+        self.bm_run = None
         selected_bm = self.benchmark_cmbx.currentText()
         self.start_time = time()
         self.last_time = None
@@ -483,6 +484,7 @@ class BenchmarkWindow(QMainWindow):
             self.cp_bm_runs = deepcopy(self.benchmark_runs)
             self.benchmark_results = dict()
             self.stop_multi_run = False
+            self._old_backend_kwargs = self.backend_kwargs
 
         if not self.stop_multi_run:
             self.start_time = time()
@@ -497,7 +499,7 @@ class BenchmarkWindow(QMainWindow):
                 bm_func = list(self.cp_bm_runs.keys())[0]
                 if len(self.cp_bm_runs[bm_func]) > 0:
                     self.bm_run = list(self.cp_bm_runs[bm_func].keys())[0]
-                    kwargs = self.cp_bm_runs[bm_func][self.bm_run]
+                    self.backend_kwargs = self.cp_bm_runs[bm_func][self.bm_run]
                     self.cp_bm_runs[bm_func].pop(self.bm_run)
                     # Add to result-dict
                     self.benchmark_results[self.bm_run] = {'x': list(),
@@ -517,6 +519,12 @@ class BenchmarkWindow(QMainWindow):
         if run_type == 'multi':
             self.start_benchmark(False)
             self.n_bm = 1
+
+    def benchmark_finished(self):
+        # Restore backend-kwargs as before the benchmark
+        self.backend_kwargs = self._old_backend_kwargs
+        self.load_backend()
+        ResultDialog(self)
 
     def mpl_plot(self):
         self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])
