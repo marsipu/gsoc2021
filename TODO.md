@@ -24,11 +24,11 @@
 - [ ] Marking Bad Epochs + Autoreject (Bad-Segment with subsegments per channel)
 
 ## User Interaction
-- Arrow-Keys for left-right-movement
+- [X] Arrow-Keys for left-right-movement
 
 ## Advanced Features
 - [ ] change distance between channels dynamically (up to zero==butterfly)
-- [ ] OpenGL (optional)
+- [X] OpenGL (optional, but not on Windws)
 - [ ] Tooltip/Crosshair at cursor which shows time/value under cursor-tip (prerequisite: handle different channel-scales)
 
 ## Outlook

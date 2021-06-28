@@ -1,4 +1,11 @@
+# Week 4
+## Monday, 2021-06-28
+- fix benchmark-bugs
+- fix OpenGl-Problem
+- add keyboard-shortcuts
+
 # Week 3
+## Friday, 2021-06-24
 - add all_data parameter to compare QScene-Scrolling performance
 - add qt-prototype to investigate OpenGL-Issue and compare
 
