@@ -1,4 +1,5 @@
 # Add requirements not contained in standard MNE-Python-Installation
 pyqtgraph
+pyopengl
 vispy
 PythonQwt
