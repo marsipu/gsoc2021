@@ -239,6 +239,10 @@ class BenchmarkWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        data_path = mne.datasets.sample.data_path()
+        self.raw_fname = data_path + '/MEG/sample/sample_audvis_raw.fif'
+        self.raw_hp_filtered_path = join(os.getcwd(), 'filtered_raw.fif')
+
         self.raw = None
         self.data = None
         self.times = None
@@ -277,15 +281,12 @@ class BenchmarkWindow(QMainWindow):
 
     def load_raw(self):
         if self.raw is None:
-            data_path = mne.datasets.sample.data_path()
-            raw_fname = data_path + '/MEG/sample/sample_audvis_raw.fif'
-            raw_hp_filtered_path = join(os.getcwd(), 'filtered_raw.fif')
-            if isfile(raw_hp_filtered_path):
-                self.raw = mne.io.read_raw(raw_hp_filtered_path)
+            if isfile(self.raw_hp_filtered_path):
+                self.raw = mne.io.read_raw(self.raw_hp_filtered_path, preload=True)
             else:
-                self.raw = mne.io.read_raw(raw_fname, preload=True)
+                self.raw = mne.io.read_raw(self.raw_fname, preload=True)
                 self.raw.filter(1, None, n_jobs=-1)
-                self.raw.save(raw_hp_filtered_path)
+                self.raw.save(self.raw_hp_filtered_path)
 
             # Compute scalings
             self.scalings = _compute_scalings(scalings=dict(),
@@ -526,5 +527,13 @@ class BenchmarkWindow(QMainWindow):
         self.load_backend()
         ResultDialog(self)
 
+    def save_raw(self, _):
+        self.raw.save(self.raw_hp_filtered_path, overwrite=True)
+
     def mpl_plot(self):
-        self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])
+        fig = self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])
+        fig.canvas.mpl_connect('close_event', self.save_raw)
+
+    def closeEvent(self, event):
+        event.accept()
+        self.save_raw(None)

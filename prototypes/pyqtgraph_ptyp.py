@@ -5,13 +5,14 @@ from functools import partial
 
 import numpy as np
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QDialog, QFormLayout, QGraphicsItem, QGraphicsProxyWidget, QGridLayout, QLabel, QPushButton, \
     QScrollBar, \
     QSizePolicy, QVBoxLayout, \
     QWidget
 from mne.viz.utils import _compute_scalings
-from pyqtgraph import (AxisItem, GraphicsView, PlotCurveItem, PlotItem, ViewBox, functions)
-
+from pyqtgraph import (AxisItem, GraphicsView, LinearRegionItem, PlotCurveItem, PlotItem, TextItem, ViewBox, functions)
+from pyqtgraph.Qt import QtCore
 
 class RawCurveItem(PlotCurveItem):
     def __init__(self, data, times, ch_name, ypos, sfreq, ds=1, isbad=False):
@@ -102,6 +103,10 @@ class TimeAxis(AxisItem):
             tick_strings = super().tickStrings(values, scale, spacing)
         
         return tick_strings
+
+    def refresh(self):
+        self.picture = None
+        self.update()
 
 
 class ChannelAxis(AxisItem):
@@ -201,19 +206,26 @@ class RawViewBox(ViewBox):
     def __init__(self, main):
         super().__init__(invertY=True)
         self.main = main
+        self._drag_start = None
 
-    def keyPressEvent(self, ev):
-        if ev.text() == 't':
-            self.main.clock_ticks = not self.main.clock_ticks
-            self.sigXRangeChanged.emit(self, tuple(self.state['viewRange'][0]))
+    def mouseDragEvent(self, event, axis=None):
+        event.accept()
+
+        if event.button() == Qt.LeftButton and self.main.annotation_mode:
+            if event.isStart():
+                self._drag_start = self.mapSceneToView(event.scenePos()).x()
+            elif event.isFinish():
+                drag_stop = self.mapSceneToView(event.scenePos()).x()
+                onset = min(self._drag_start, drag_stop)
+                duration = abs(self._drag_start - drag_stop)
+                self.main.annot_ctrl.add_annotation(onset, duration, 'Bad')
         else:
-            # Let main handle the keypress
-            ev.ignore()
+            super().mouseDragEvent(event, axis)
 
 
 class RawPlot(PlotItem):
     def __init__(self, raw, data, times, duration, nchan, ds, all_data,
-                 enable_cache):
+                 enable_cache, show_annotations):
         self.axis_items = {'bottom': TimeAxis(self),
                            'left': ChannelAxis(self)}
         self.clock_ticks = False
@@ -231,6 +243,10 @@ class RawPlot(PlotItem):
         self.ds = ds
         self.all_data = all_data
         self.enable_cache = enable_cache
+        self.show_annotations = show_annotations
+
+        self.annotation_mode = False
+        self.annot_label = None
 
         self.lines = OrderedDict()
         self._hscroll_dir = 1
@@ -254,6 +270,11 @@ class RawPlot(PlotItem):
         for ch_idx, (ch_data, ch_name) in enumerate(zip(self.data[:max_idx],
                                     self.raw.ch_names[:max_idx])):
             self.add_line(ch_idx, ch_data, ch_name)
+
+        # Add Annotations
+        if self.show_annotations:
+            self.annot_ctrl = AnnotationController(self)
+            self.annot_ctrl.update_range(0, duration)
 
         if not self.all_data:
             self.sigXRangeChanged.connect(self.xrange_changed)
@@ -307,6 +328,9 @@ class RawPlot(PlotItem):
         for ch_name in self.lines:
             line = self.lines[ch_name][0]
             line.xrange_changed(None, xrange)
+
+        if self.show_annotations:
+            self.annot_ctrl.update_range(*xrange)
 
     def yrange_changed(self, _, yrange):
         ymin, ymax = int(yrange[0]), int(yrange[1])
@@ -406,6 +430,16 @@ class RawPlot(PlotItem):
         # Let main handle the keypress
         event.ignore()
 
+    def update_annot_label(self):
+        if self.annotation_mode:
+            self.annot_label = TextItem('Annotation-Mode', color='r', anchor=(0, 0))
+            self.annot_label.setPos(0, 0)
+            self.annot_label.setFont(QFont('AnyStyle', 20, QFont.Bold))
+            self.addItem(self.annot_label)
+        elif self.annot_label:
+            self.removeItem(self.annot_label)
+            self.annot_label = None
+
 
 class HelpDialog(QDialog):
     def __init__(self, main):
@@ -423,14 +457,81 @@ class HelpDialog(QDialog):
         self.setLayout(layout)
 
 
+class AnnotationRegion(LinearRegionItem):
+    removeRequested = QtCore.Signal()
+    def __init__(self, description, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setToolTip(description)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Delete:
+            self.removeRequested.emit()
+
+
+class AnnotationController:
+    def __init__(self, main):
+        self.main = main
+        self.first_time = main.raw.first_time
+        self.annotations = main.raw.annotations
+        self.regions = dict()
+        self.in_plot = dict()
+
+        for annot in self.annotations:
+            onset = annot['onset'] - self.first_time
+            duration = annot['duration']
+            description = annot['description']
+            self.add_region(onset, duration, description)
+
+    def add_region(self, onset, duration, description):
+        region = AnnotationRegion(description=description, values=(onset, onset + duration),
+                                  orientation='vertical', movable=True, swapMode='block')
+        region.sigRegionChangeFinished.connect(partial(self.region_changed, old_onset=onset))
+        region.removeRequested.connect(partial(self.remove_region, onset=onset))
+        self.regions[onset] = region
+
+    def remove_region(self, onset):
+        if onset in self.in_plot:
+            self.main.removeItem(self.in_plot[onset])
+            self.in_plot.pop(onset)
+
+        if onset in self.regions:
+            self.regions.pop(onset)
+
+    def region_changed(self, region, old_onset):
+        idx = np.where(self.annotations.onset == old_onset)
+        rgn = region.getRegion()
+        self.annotations.onset[idx] = rgn[0]
+        self.annotations.duration[idx] = rgn[1] - rgn[0]
+
+    def update_range(self, xmin, xmax):
+        inside_onsets = self.annotations.onset[np.where((self.annotations.onset > xmin) &
+                                                        (self.annotations.onset < xmax))[0]]
+        rm_onsets = [o for o in self.in_plot if o not in inside_onsets]
+        for rm_onset in rm_onsets:
+            self.main.removeItem(self.in_plot[rm_onset])
+            self.in_plot.pop(rm_onset)
+
+        add_onsets = [o for o in self.regions if o in inside_onsets and o not in self.in_plot]
+        for add_onset in add_onsets:
+            region = self.regions[add_onset]
+            self.main.addItem(region)
+            self.in_plot[add_onset] = region
+
+    def add_annotation(self, onset, duration, description):
+        self.annotations.append(onset, duration, description)
+        self.add_region(onset, duration, description)
+        self.update_range(*self.main.viewRange()[0])
+
+
 class PyQtGraphPtyp(QWidget):
     def __init__(self, raw, data, times, duration=20,
                  nchan=30, ds=1, all_data=False, enable_cache=False,
-                 antialiasing=False, use_opengl=False):
+                 antialiasing=False, use_opengl=False, show_annotations=True):
         super().__init__()
         self.view = GraphicsView(background='w')
         self.plot_item = RawPlot(raw=raw, data=data, times=times, duration=duration, nchan=nchan,
-                                 ds=ds, all_data=all_data, enable_cache=enable_cache)
+                                 ds=ds, all_data=all_data, enable_cache=enable_cache,
+                                 show_annotations=show_annotations)
         self.plot_item.sigXRangeChanged.connect(self.xrange_changed)
         self.plot_item.sigYRangeChanged.connect(self.yrange_changed)
         self.view.setCentralItem(self.plot_item)
@@ -516,3 +617,9 @@ class PyQtGraphPtyp(QWidget):
                 self.plot_item.change_nchan(1)
             else:
                 self.plot_item.change_nchan(self.plot_item.nchan / 4)
+        elif event.key() == Qt.Key_A:
+            self.plot_item.annotation_mode = not self.plot_item.annotation_mode
+            self.plot_item.update_annot_label()
+        elif event.key() == Qt.Key_T:
+            self.plot_item.clock_ticks = not self.plot_item.clock_ticks
+            self.plot_item.axis_items['bottom'].refresh()

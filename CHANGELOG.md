@@ -1,4 +1,8 @@
 # Week 4
+## Tuesday, 2021-06-29
+- tried to fix OpenGL-issue
+- started adding annotations
+
 ## Monday, 2021-06-28
 - fix benchmark-bugs
 - fix OpenGl-Problem
