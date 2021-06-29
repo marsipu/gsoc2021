@@ -1,9 +1,10 @@
 import functools
 import inspect
+import os
 from ast import literal_eval
 from copy import deepcopy
 from functools import partial
-from os.path import isfile
+from os.path import isfile, join
 
 import mne
 import numpy as np
@@ -278,7 +279,7 @@ class BenchmarkWindow(QMainWindow):
         if self.raw is None:
             data_path = mne.datasets.sample.data_path()
             raw_fname = data_path + '/MEG/sample/sample_audvis_raw.fif'
-            raw_hp_filtered_path = data_path + '/MEG/sample/sample_audvis_1Hz_raw.fif'
+            raw_hp_filtered_path = join(os.getcwd(), 'filtered_raw.fif')
             if isfile(raw_hp_filtered_path):
                 self.raw = mne.io.read_raw(raw_hp_filtered_path)
             else:

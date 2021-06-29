@@ -130,3 +130,5 @@ dmypy.json
 
 # PyCharm Project-Files
 .idea/
+
+filtered_raw.fif
