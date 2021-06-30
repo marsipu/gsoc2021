@@ -1,4 +1,7 @@
 # Week 4
+## Wednesday, 2021-06-30
+- implemented annotations
+
 ## Tuesday, 2021-06-29
 - tried to fix OpenGL-issue
 - started adding annotations

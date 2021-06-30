@@ -14,6 +14,7 @@ from mne.viz.utils import _compute_scalings
 from pyqtgraph import (AxisItem, GraphicsView, LinearRegionItem, PlotCurveItem, PlotItem, TextItem, ViewBox, functions)
 from pyqtgraph.Qt import QtCore
 
+
 class RawCurveItem(PlotCurveItem):
     def __init__(self, data, times, ch_name, ypos, sfreq, ds=1, isbad=False):
         super().__init__(clickable=True)
@@ -63,7 +64,7 @@ class RawCurveItem(PlotCurveItem):
         if self.ds > 1:
             # Auto-Downsampling and mean method from pyqtgraph
             n = len(visible_x) // self.ds
-            visible_x = visible_x[:n*self.ds].reshape(n, self.ds).mean(axis=1)
+            visible_x = visible_x[:n * self.ds].reshape(n, self.ds).mean(axis=1)
             visible_y = visible_y[:n * self.ds].reshape(n, self.ds).mean(axis=1)
 
         self.setData(visible_x, visible_y)
@@ -101,7 +102,7 @@ class TimeAxis(AxisItem):
                 tick_strings.append(val_str)
         else:
             tick_strings = super().tickStrings(values, scale, spacing)
-        
+
         return tick_strings
 
     def refresh(self):
@@ -268,13 +269,14 @@ class RawPlot(PlotItem):
         else:
             max_idx = self.nchan
         for ch_idx, (ch_data, ch_name) in enumerate(zip(self.data[:max_idx],
-                                    self.raw.ch_names[:max_idx])):
+                                                        self.raw.ch_names[:max_idx])):
             self.add_line(ch_idx, ch_data, ch_name)
 
         # Add Annotations
         if self.show_annotations:
             self.annot_ctrl = AnnotationController(self)
             self.annot_ctrl.update_range(0, duration)
+            self.annot_ctrl.change_mode(self.annotation_mode)
 
         if not self.all_data:
             self.sigXRangeChanged.connect(self.xrange_changed)
@@ -430,7 +432,8 @@ class RawPlot(PlotItem):
         # Let main handle the keypress
         event.ignore()
 
-    def update_annot_label(self):
+    def toggle_annot_mode(self):
+        self.annot_ctrl.change_mode(self.annotation_mode)
         if self.annotation_mode:
             self.annot_label = TextItem('Annotation-Mode', color='r', anchor=(0, 0))
             self.annot_label.setPos(0, 0)
@@ -458,17 +461,32 @@ class HelpDialog(QDialog):
 
 
 class AnnotationRegion(LinearRegionItem):
-    removeRequested = QtCore.Signal()
-    def __init__(self, description, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    removeRequested = QtCore.Signal(object)
+
+    def __init__(self, description, values):
+        super().__init__(values=values, orientation='vertical', movable=True, swapMode='sort')
+        self.old_onset = values[0]
         self.setToolTip(description)
 
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Delete:
-            self.removeRequested.emit()
+    def mouseClickEvent(self, event):
+        event.accept()
+        if event.button() == QtCore.Qt.RightButton and self.movable:
+            self.removeRequested.emit(self)
+
+    def mouseDragEvent(self, event):
+        event.accept()
+        super().mouseDragEvent(event)
+        if event.isFinish():
+            self.old_onset = self.getRegion()[0]
+
+    def lineMoveFinished(self):
+        super().lineMoveFinished()
+        self.old_onset = self.getRegion()[0]
 
 
 class AnnotationController:
+    """ Controller for all Annotation-Regions."""
+
     def __init__(self, main):
         self.main = main
         self.first_time = main.raw.first_time
@@ -483,44 +501,63 @@ class AnnotationController:
             self.add_region(onset, duration, description)
 
     def add_region(self, onset, duration, description):
-        region = AnnotationRegion(description=description, values=(onset, onset + duration),
-                                  orientation='vertical', movable=True, swapMode='block')
-        region.sigRegionChangeFinished.connect(partial(self.region_changed, old_onset=onset))
-        region.removeRequested.connect(partial(self.remove_region, onset=onset))
+        region = AnnotationRegion(description=description, values=(onset, onset + duration))
+        region.sigRegionChangeFinished.connect(self.region_changed)
+        region.removeRequested.connect(self.remove_region)
         self.regions[onset] = region
 
-    def remove_region(self, onset):
+    def remove_region(self, region):
+        onset = region.getRegion()[0]
+        # Remove from shown regions
         if onset in self.in_plot:
             self.main.removeItem(self.in_plot[onset])
             self.in_plot.pop(onset)
 
+        # Remove from all regions
         if onset in self.regions:
             self.regions.pop(onset)
 
-    def region_changed(self, region, old_onset):
-        idx = np.where(self.annotations.onset == old_onset)
+        # Remove from annotations
+        idx = np.where(self.annotations.onset == onset + self.first_time)
+        self.annotations.delete(idx)
+
+    def region_changed(self, region):
+        idx = np.where(self.annotations.onset == region.old_onset + self.first_time)
         rgn = region.getRegion()
-        self.annotations.onset[idx] = rgn[0]
+
+        # Change entries in region-dictionaries
+        self.regions[rgn[0]] = self.regions.pop(region.old_onset)
+        self.in_plot[rgn[0]] = self.in_plot.pop(region.old_onset)
+
+        # Change annotations
+        self.annotations.onset[idx] = rgn[0] + self.first_time
         self.annotations.duration[idx] = rgn[1] - rgn[0]
 
     def update_range(self, xmin, xmax):
-        inside_onsets = self.annotations.onset[np.where((self.annotations.onset > xmin) &
-                                                        (self.annotations.onset < xmax))[0]]
-        rm_onsets = [o for o in self.in_plot if o not in inside_onsets]
+        inside_onsets = self.annotations.onset[np.where((self.annotations.onset + self.annotations.duration
+                                                         >= xmin + self.first_time) &
+                                                        (self.annotations.onset < xmax + self.first_time))[0]]
+        rm_onsets = [o for o in self.in_plot if o + self.first_time not in inside_onsets]
         for rm_onset in rm_onsets:
             self.main.removeItem(self.in_plot[rm_onset])
             self.in_plot.pop(rm_onset)
 
-        add_onsets = [o for o in self.regions if o in inside_onsets and o not in self.in_plot]
+        add_onsets = [o for o in self.regions if o + self.first_time in inside_onsets and o not in self.in_plot]
         for add_onset in add_onsets:
             region = self.regions[add_onset]
             self.main.addItem(region)
             self.in_plot[add_onset] = region
 
     def add_annotation(self, onset, duration, description):
-        self.annotations.append(onset, duration, description)
+        """Add annotation to Annotations (onset is here the onset
+        in the plot which is then adjusted with first_time)"""
+        self.annotations.append(onset + self.first_time, duration, description)
         self.add_region(onset, duration, description)
         self.update_range(*self.main.viewRange()[0])
+
+    def change_mode(self, annotation_on):
+        for region in self.regions.values():
+            region.setMovable(annotation_on)
 
 
 class PyQtGraphPtyp(QWidget):
@@ -565,6 +602,7 @@ class PyQtGraphPtyp(QWidget):
             ('Ctrl + ' + ch_keys[0], 'Increase channel-count'),
             (ch_keys[1], 'Decrease channel-count'),
             ('Ctrl + ' + ch_keys[1], 'Decrease channel-count'),
+            ('a', 'Toggle annotation-mode'),
             ('t', 'Toggle time format')
         ]
 
@@ -619,7 +657,7 @@ class PyQtGraphPtyp(QWidget):
                 self.plot_item.change_nchan(self.plot_item.nchan / 4)
         elif event.key() == Qt.Key_A:
             self.plot_item.annotation_mode = not self.plot_item.annotation_mode
-            self.plot_item.update_annot_label()
+            self.plot_item.toggle_annot_mode()
         elif event.key() == Qt.Key_T:
             self.plot_item.clock_ticks = not self.plot_item.clock_ticks
             self.plot_item.axis_items['bottom'].refresh()
