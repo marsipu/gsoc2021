@@ -11,7 +11,8 @@ from PyQt5.QtWidgets import QDialog, QFormLayout, QGraphicsItem, QGraphicsProxyW
     QSizePolicy, QVBoxLayout, \
     QWidget
 from mne.viz.utils import _compute_scalings
-from pyqtgraph import (AxisItem, GraphicsView, LinearRegionItem, PlotCurveItem, PlotItem, TextItem, ViewBox, functions)
+from pyqtgraph import (AxisItem, GraphicsView, InfiniteLine, LinearRegionItem, PlotCurveItem, PlotItem, TextItem,
+                       ViewBox, functions)
 from pyqtgraph.Qt import QtCore
 
 
@@ -223,6 +224,16 @@ class RawViewBox(ViewBox):
         else:
             super().mouseDragEvent(event, axis)
 
+    def mouseClickEvent(self, event):
+        super().mouseClickEvent(event)
+        if event.button() == QtCore.Qt.LeftButton:
+            self.main.add_vline(event)
+
+
+class VLine(InfiniteLine):
+    def __init__(self, pos):
+        super().__init__(pos)
+
 
 class RawPlot(PlotItem):
     def __init__(self, raw, data, times, duration, nchan, ds, all_data,
@@ -245,6 +256,8 @@ class RawPlot(PlotItem):
         self.all_data = all_data
         self.enable_cache = enable_cache
         self.show_annotations = show_annotations
+
+        self.vline = None
 
         self.annotation_mode = False
         self.annot_label = None
@@ -427,6 +440,12 @@ class RawPlot(PlotItem):
 
         self.nchan += step
         self.setYRange(ymin, ymax, padding=0)
+
+    def add_vline(self, pos):
+        if self.vline:
+            self.removeItem(self.vline)
+
+        self.vline = VLine()
 
     def keyPressEvent(self, event):
         # Let main handle the keypress
