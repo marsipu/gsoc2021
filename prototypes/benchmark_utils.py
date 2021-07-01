@@ -287,7 +287,7 @@ class BenchmarkWindow(QMainWindow):
                 self.raw = mne.io.read_raw(self.raw_fname, preload=True)
                 self.raw.filter(1, None, n_jobs=-1)
                 self.raw.save(self.raw_hp_filtered_path)
-            self.raw.pick(self.raw.ch_names[:5])
+
             # Compute scalings
             self.scalings = _compute_scalings(scalings=dict(),
                                               inst=self.raw, remove_dc=True)

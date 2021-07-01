@@ -244,14 +244,20 @@ class RawViewBox(ViewBox):
             super().mouseDragEvent(event, axis)
 
     def mouseClickEvent(self, event):
-        super().mouseClickEvent(event)
+        # If we want the context-menu back, uncomment following line
+        # super().mouseClickEvent(event)
         if event.button() == QtCore.Qt.LeftButton:
-            self.main.add_vline(event)
+            self.main.add_vline(self.mapSceneToView(event.scenePos()).x())
+        elif event.button() == QtCore.Qt.RightButton:
+            self.main.remove_vline()
 
 
 class VLine(InfiniteLine):
     def __init__(self, pos):
-        super().__init__(pos)
+        super().__init__(pos, pen='g', hoverPen='y',
+                         movable=True, label='Time: {value:.3f}',
+                         labelOpts={'position': 0.95, 'fill': 'g',
+                                    'color': 'b'})
 
 
 class RawPlot(PlotItem):
@@ -467,11 +473,16 @@ class RawPlot(PlotItem):
         self.nchan += step
         self.setYRange(ymin, ymax, padding=0)
 
-    def add_vline(self, pos):
+    def remove_vline(self):
         if self.vline:
             self.removeItem(self.vline)
 
-        self.vline = VLine()
+    def add_vline(self, pos):
+        # Remove vline if already shown
+        self.remove_vline()
+
+        self.vline = VLine(pos)
+        self.addItem(self.vline)
 
     def keyPressEvent(self, event):
         # Let main handle the keypress
