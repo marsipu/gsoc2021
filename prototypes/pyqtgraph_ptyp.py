@@ -54,7 +54,7 @@ class RawCurveItem(PlotCurveItem):
         self.setData(self.times, self.data)
         self.setPos(0, self.ypos)
 
-    def xrange_changed(self, _, xrange):
+    def xrange_changed(self, xrange):
         xmin, xmax = xrange
         start = max(0, int(xmin * self.sfreq))
         stop = min(len(self.data), int(xmax * self.sfreq + 1))
@@ -62,11 +62,30 @@ class RawCurveItem(PlotCurveItem):
         visible_x = self.times[start:stop]
         visible_y = self.data[start:stop]
 
-        if self.ds > 1:
-            # Auto-Downsampling and mean method from pyqtgraph
-            n = len(visible_x) // self.ds
-            visible_x = visible_x[:n * self.ds].reshape(n, self.ds).mean(axis=1)
-            visible_y = visible_y[:n * self.ds].reshape(n, self.ds).mean(axis=1)
+        # Auto-Downsampling and mean method from pyqtgraph
+        ds = 1
+        if self.ds == 'auto':
+            view = self.getViewBox()
+            if view is not None:
+                view_range = view.viewRect()
+            else:
+                view_range = None
+            if view_range is not None and len(visible_x) > 1:
+                dx = float(visible_x[-1] - visible_x[0]) / (len(visible_x) - 1)
+                if dx != 0.0:
+                    x0 = (view_range.left() - visible_x[0]) / dx
+                    x1 = (view_range.right() - visible_x[0]) / dx
+                    width = self.getViewBox().width()
+                    if width != 0.0:
+                        # Auto-Downsampling with 5 samples per pixel
+                        ds = int(max(1, int((x1 - x0) / (width * 5))))
+        elif self.ds > 1:
+            ds = self.ds
+
+        if ds > 1:
+            n = len(visible_x) // ds
+            visible_x = visible_x[:n * ds].reshape(n, ds).mean(axis=1)
+            visible_y = visible_y[:n * ds].reshape(n, ds).mean(axis=1)
 
         self.setData(visible_x, visible_y)
         self.setPos(0, self.ypos)
@@ -288,7 +307,7 @@ class RawPlot(PlotItem):
         # Add Annotations
         if self.show_annotations:
             self.annot_ctrl = AnnotationController(self)
-            self.annot_ctrl.update_range(0, duration)
+            self.annot_ctrl.update_range(0, self.duration)
             self.annot_ctrl.change_mode(self.annotation_mode)
 
         if not self.all_data:
@@ -300,18 +319,19 @@ class RawPlot(PlotItem):
         item = RawCurveItem(data=ch_data, times=self.times, ch_name=ch_name, ypos=ypos,
                             sfreq=self.raw.info['sfreq'], ds=self.ds,
                             isbad=ch_name in self.raw.info['bads'])
+        # Add Item early to have access to viewBox
+        self.addItem(item)
         self.lines[ch_name] = (item, ypos)
 
         if self.all_data:
             item.set_full_data()
         else:
-            item.xrange_changed(None, self.getViewBox().viewRange()[0])
+            item.xrange_changed(self.getViewBox().viewRange()[0])
             self.nchan = len(self.lines)
 
         if self.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
         item.sigClicked.connect(self.bad_changed)
-        self.addItem(item)
 
     def remove_line(self, ch_name):
         self.removeItem(self.lines[ch_name][0])
@@ -342,10 +362,13 @@ class RawPlot(PlotItem):
     def xrange_changed(self, _, xrange):
         for ch_name in self.lines:
             line = self.lines[ch_name][0]
-            line.xrange_changed(None, xrange)
+            line.xrange_changed(xrange)
 
         if self.show_annotations:
             self.annot_ctrl.update_range(*xrange)
+
+    def redraw_lines(self):
+        self.xrange_changed(None, self.getViewBox().viewRange()[0])
 
     def yrange_changed(self, _, yrange):
         ymin, ymax = int(yrange[0]), int(yrange[1])
@@ -427,6 +450,7 @@ class RawPlot(PlotItem):
         self.duration += step
         self.setXRange(xmin, xmax, padding=0)
 
+    # Todo: Make failsafe at boundaries
     def change_nchan(self, step):
         ymin, ymax = self.vb.viewRange()[1]
         newymax = ymax + step
@@ -435,8 +459,10 @@ class RawPlot(PlotItem):
             ymax = newymax
         elif 0 < newymin < self.ymax:
             ymin = newymin
-        else:
-            return
+        elif newymax > self.ymax:
+            ymax = self.ymax
+        elif newymin < 1:
+            ymin = 1
 
         self.nchan += step
         self.setYRange(ymin, ymax, padding=0)
@@ -581,7 +607,7 @@ class AnnotationController:
 
 class PyQtGraphPtyp(QWidget):
     def __init__(self, raw, data, times, duration=20,
-                 nchan=30, ds=1, all_data=False, enable_cache=False,
+                 nchan=30, ds='auto', all_data=False, enable_cache=False,
                  antialiasing=False, use_opengl=False, show_annotations=True):
         super().__init__()
         self.view = GraphicsView(background='w')

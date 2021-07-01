@@ -287,7 +287,7 @@ class BenchmarkWindow(QMainWindow):
                 self.raw = mne.io.read_raw(self.raw_fname, preload=True)
                 self.raw.filter(1, None, n_jobs=-1)
                 self.raw.save(self.raw_hp_filtered_path)
-
+            self.raw.pick(self.raw.ch_names[:5])
             # Compute scalings
             self.scalings = _compute_scalings(scalings=dict(),
                                               inst=self.raw, remove_dc=True)
@@ -533,6 +533,11 @@ class BenchmarkWindow(QMainWindow):
     def mpl_plot(self):
         fig = self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])
         fig.canvas.mpl_connect('close_event', self.save_raw)
+
+    def showEvent(self, event):
+        event.accept()
+        # Redraw lines for downsampling to apply instantaneously after showing the window
+        self.backend.plot_item.redraw_lines()
 
     def closeEvent(self, event):
         event.accept()
