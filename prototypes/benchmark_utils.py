@@ -367,7 +367,7 @@ class BenchmarkWindow(QMainWindow):
 
         # Not compatible to other backends, must find better solution for integration into layout
         ahelp = QAction('Help', parent=self)
-        ahelp.triggered.connect(partial(HelpDialog, self.backend))
+        ahelp.triggered.connect(self.show_help)
         self.toolbar.addAction(ahelp)
 
         self.toolbar.addSeparator()
@@ -533,6 +533,9 @@ class BenchmarkWindow(QMainWindow):
     def mpl_plot(self):
         fig = self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])
         fig.canvas.mpl_connect('close_event', self.save_raw)
+
+    def show_help(self):
+        HelpDialog(self.backend)
 
     def showEvent(self, event):
         event.accept()
