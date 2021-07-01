@@ -1,4 +1,8 @@
 # Week 4
+## Thursday, 2021-07-01
+- added auto-downsampling
+- added vline
+
 ## Wednesday, 2021-06-30
 - implemented annotations
 

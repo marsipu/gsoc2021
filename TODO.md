@@ -14,14 +14,22 @@
 - [X] Vertical Scrolling (Only load shown channels in ViewBox)
 - [X] Horizontal Scrollbar
 - [X] Vertical Scrollbar
+- [ ] channel-type colors
+- [ ] Annotation-Management
 - [ ] custom Scrollbars with markers inside
 - [ ] adaption to Epochs
 - [X] Zoom Duration/N-Channels
-- [ ] Vertical Line
+- [X] Vertical Line
 - [ ] Event Lines
 - [X] Mark Channels (including channel-label)
-- [ ] Area Selection
-- [ ] Marking Bad Epochs + Autoreject (Bad-Segment with subsegments per channel)
+- [X] Area Selection
+- [ ] Per-channel-annotation
+
+
+## Performance
+- [ ] Downsampling with min/max
+- [ ] Downsampling-test (no omission of peaks)
+
 
 ## User Interaction
 - [X] Arrow-Keys for left-right-movement
