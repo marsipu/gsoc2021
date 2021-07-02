@@ -228,6 +228,7 @@ class RawViewBox(ViewBox):
         super().__init__(invertY=True)
         self.main = main
         self._drag_start = None
+        self._drag_region = None
 
     def mouseDragEvent(self, event, axis=None):
         event.accept()
@@ -235,11 +236,18 @@ class RawViewBox(ViewBox):
         if event.button() == Qt.LeftButton and self.main.annotation_mode:
             if event.isStart():
                 self._drag_start = self.mapSceneToView(event.scenePos()).x()
+                self._drag_region = AnnotationRegion(description=self.main.annot_label,
+                                                     values=(self._drag_start, self._drag_start))
+                self.main.addItem(self._drag_region)
             elif event.isFinish():
                 drag_stop = self.mapSceneToView(event.scenePos()).x()
+                self._drag_region.setRegion((self._drag_start, drag_stop))
                 onset = min(self._drag_start, drag_stop)
                 duration = abs(self._drag_start - drag_stop)
-                self.main.annot_ctrl.add_annotation(onset, duration, 'Bad')
+                self.main.annot_ctrl.add_annotation(onset, duration, self._drag_region)
+            else:
+                self._drag_region.setRegion((self._drag_start,
+                                             self.mapSceneToView(event.scenePos()).x()))
         else:
             super().mouseDragEvent(event, axis)
 
@@ -285,7 +293,8 @@ class RawPlot(PlotItem):
         self.vline = None
 
         self.annotation_mode = False
-        self.annot_label = None
+        self.annot_mode_hint = None
+        self.annot_label = 'Bad'
 
         self.lines = OrderedDict()
         self._hscroll_dir = 1
@@ -491,13 +500,13 @@ class RawPlot(PlotItem):
     def toggle_annot_mode(self):
         self.annot_ctrl.change_mode(self.annotation_mode)
         if self.annotation_mode:
-            self.annot_label = TextItem('Annotation-Mode', color='r', anchor=(0, 0))
-            self.annot_label.setPos(0, 0)
-            self.annot_label.setFont(QFont('AnyStyle', 20, QFont.Bold))
-            self.addItem(self.annot_label)
-        elif self.annot_label:
-            self.removeItem(self.annot_label)
-            self.annot_label = None
+            self.annot_mode_hint = TextItem('Annotation-Mode', color='r', anchor=(0, 0))
+            self.annot_mode_hint.setPos(0, 0)
+            self.annot_mode_hint.setFont(QFont('AnyStyle', 20, QFont.Bold))
+            self.addItem(self.annot_mode_hint)
+        elif self.annot_mode_hint:
+            self.removeItem(self.annot_mode_hint)
+            self.annot_mode_hint = None
 
 
 class HelpDialog(QDialog):
@@ -556,8 +565,10 @@ class AnnotationController:
             description = annot['description']
             self.add_region(onset, duration, description)
 
-    def add_region(self, onset, duration, description):
-        region = AnnotationRegion(description=description, values=(onset, onset + duration))
+    def add_region(self, onset, duration, description, region=None):
+        if not region:
+            region = AnnotationRegion(description=description,
+                                      values=(onset, onset + duration))
         region.sigRegionChangeFinished.connect(self.region_changed)
         region.removeRequested.connect(self.remove_region)
         self.regions[onset] = region
@@ -598,17 +609,18 @@ class AnnotationController:
             self.main.removeItem(self.in_plot[rm_onset])
             self.in_plot.pop(rm_onset)
 
-        add_onsets = [o for o in self.regions if o + self.first_time in inside_onsets and o not in self.in_plot]
+        add_onsets = [o for o in self.regions if o + self.first_time in inside_onsets and o not in self.in_plot
+                      and self.regions[o] not in self.main.items]
         for add_onset in add_onsets:
             region = self.regions[add_onset]
             self.main.addItem(region)
             self.in_plot[add_onset] = region
 
-    def add_annotation(self, onset, duration, description):
+    def add_annotation(self, onset, duration, region=None):
         """Add annotation to Annotations (onset is here the onset
         in the plot which is then adjusted with first_time)"""
-        self.annotations.append(onset + self.first_time, duration, description)
-        self.add_region(onset, duration, description)
+        self.annotations.append(onset + self.first_time, duration, self.main.annot_label)
+        self.add_region(onset, duration, self.main.annot_label, region)
         self.update_range(*self.main.viewRange()[0])
 
     def change_mode(self, annotation_on):
