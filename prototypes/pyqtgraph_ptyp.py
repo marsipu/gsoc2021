@@ -4,11 +4,16 @@ from collections import OrderedDict
 from functools import partial
 
 import numpy as np
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QDialog, QFormLayout, QGraphicsItem, QGraphicsProxyWidget, QGridLayout, QLabel, QPushButton, \
+from PyQt5.QtCore import QAbstractItemModel, QAbstractListModel, QModelIndex, Qt
+from PyQt5.QtGui import QBrush, QColor, QFont, QIcon
+from PyQt5.QtWidgets import QColorDialog, QComboBox, QDialog, QDockWidget, QDoubleSpinBox, QFormLayout, QGraphicsItem, \
+    QGraphicsProxyWidget, \
+    QGridLayout, \
+    QHBoxLayout, QLabel, \
+    QMainWindow, \
+    QPushButton, \
     QScrollBar, \
-    QSizePolicy, QVBoxLayout, \
+    QSizePolicy, QSpinBox, QVBoxLayout, \
     QWidget
 from mne.viz.utils import _compute_scalings
 from pyqtgraph import (AxisItem, GraphicsView, InfiniteLine, LinearRegionItem, PlotCurveItem, PlotItem, TextItem,
@@ -294,7 +299,7 @@ class RawPlot(PlotItem):
 
         self.annotation_mode = False
         self.annot_mode_hint = None
-        self.annot_label = 'Bad'
+        self.annot_colors = dict()
 
         self.lines = OrderedDict()
         self._hscroll_dir = 1
@@ -628,11 +633,94 @@ class AnnotationController:
             region.setMovable(annotation_on)
 
 
-class PyQtGraphPtyp(QWidget):
+class AnnotLabelModel(QAbstractListModel):
+    def __init__(self, annotations, colors):
+        super().__init__()
+        self.annotations = annotations
+        self.colors = colors
+
+    def _get_label(self, index):
+        return list(set(self.annotations.description))[index.row()]
+
+    def rowCount(self, parent=None):
+        return len(set(self.annotations.description))
+
+    def flags(self, index=QModelIndex()):
+        default_flags = QAbstractListModel.flags(self, index)
+        if index.isValid():
+            return default_flags | Qt.ItemIsEditable
+        else:
+            return default_flags
+
+    def data(self, index, role=None):
+        label = self._get_label(index)
+        if role == Qt.DisplayRole:
+            return str(label)
+        elif role == Qt.BackgroundRole:
+            if label in self.colors:
+                color = self.colors[label]
+            else:
+                color = QColor('red')
+            return QBrush(color)
+
+
+class AnnotationDock(QDockWidget):
+    def __init__(self, main):
+        super().__init__('Annotations')
+        self.main = main
+        self.init_ui()
+
+    def init_ui(self):
+        widget = QWidget()
+        layout = QHBoxLayout()
+
+        self.label_cmbx = QComboBox()
+        self.label_model = AnnotLabelModel(self.main.raw.annotations, self.main.annot_colors)
+        self.label_cmbx.setModel(self.label_model)
+        self.label_cmbx.currentIndexChanged.connect(self.label_changed)
+        layout.addWidget(self.label_cmbx)
+
+        color_bt = QPushButton('Change Color')
+        color_bt.clicked.connect(self.get_color)
+        layout.addWidget(color_bt)
+
+        self.onset_bx = QDoubleSpinBox()
+        self.onset_bx.valueChanged.connect(self.onset_changed)
+        layout.addWidget(self.onset_bx)
+
+        self.duration_bx = QDoubleSpinBox()
+        self.duration_bx.valueChanged.connect(self.duration_changed)
+        layout.addWidget(self.duration_bx)
+
+        widget.setLayout(layout)
+        self.setWidget(widget)
+
+    def label_changed(self, idx):
+        self.onset_bx.setValue(self.main.raw.annotations.onset[idx])
+        self.duration_bx.setValue(self.main.raw.annotations.onset[idx])
+
+    def onset_changed(self, val):
+        current_idx = self.label_cmbx.currentIndex()
+        self.main.raw.annotations.onset[current_idx] = val
+
+    def duration_changed(self, val):
+        current_idx = self.label_cmbx.currentIndex()
+        self.main.raw.annotations.duration[current_idx] = val
+
+    def get_color(self):
+        current_label = self.label_cmbx.currentText()
+        color = QColorDialog.getColor(QColor('red'), self,
+                                      f'Choose color for {current_label}')
+        if color.isValid():
+            self.main.annot_colors[current_label] = color
+
+
+class PyQtGraphPtyp(QMainWindow):
     def __init__(self, raw, data, times, duration=20,
                  nchan=30, ds='auto', all_data=False, enable_cache=False,
                  antialiasing=False, use_opengl=False, show_annotations=True):
         super().__init__()
+        self.setCentralWidget(QWidget())
         self.view = GraphicsView(background='w')
         self.plot_item = RawPlot(raw=raw, data=data, times=times, duration=duration, nchan=nchan,
                                  ds=ds, all_data=all_data, enable_cache=enable_cache,
@@ -648,7 +736,11 @@ class PyQtGraphPtyp(QWidget):
         layout.addWidget(self.time_bar, 1, 0)
         self.channel_bar = ChannelScrollBar(self.plot_item)
         layout.addWidget(self.channel_bar, 0, 1)
-        self.setLayout(layout)
+        self.centralWidget().setLayout(layout)
+
+        self.annot_dock = AnnotationDock(self.plot_item)
+        self.addDockWidget(Qt.TopDockWidgetArea, self.annot_dock)
+        self.annot_dock.setVisible(False)
 
         is_mac = platform.system() == 'Darwin'
         dur_keys = ('fn + ←', 'fn + →') if is_mac else ('Home', 'End')
@@ -681,6 +773,10 @@ class PyQtGraphPtyp(QWidget):
     def yrange_changed(self, _, yrange):
         self.channel_bar.setValue(yrange[0])
         self.channel_bar.update_nchan()
+
+    def toggle_annot_mode(self):
+        self.annot_dock.setVisible(self.plot_item.annotation_mode)
+        self.plot_item.toggle_annot_mode()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Left:
@@ -725,7 +821,7 @@ class PyQtGraphPtyp(QWidget):
                 self.plot_item.change_nchan(self.plot_item.nchan / 4)
         elif event.key() == Qt.Key_A:
             self.plot_item.annotation_mode = not self.plot_item.annotation_mode
-            self.plot_item.toggle_annot_mode()
+            self.toggle_annot_mode()
         elif event.key() == Qt.Key_T:
             self.plot_item.clock_ticks = not self.plot_item.clock_ticks
             self.plot_item.axis_items['bottom'].refresh()
