@@ -1,4 +1,8 @@
 # Week 4
+## Friday, 2021-07-02
+- regions updating while dragging
+- started work on annotation-manager
+
 ## Thursday, 2021-07-01
 - added auto-downsampling
 - added vline
