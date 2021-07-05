@@ -16,19 +16,21 @@
 - [X] Vertical Scrollbar
 - [ ] channel-type colors
 - [ ] Annotation-Management
-- [ ] custom Scrollbars with markers inside
+- [ ] Event Lines
+- [ ] Overview-Bar
 - [ ] adaption to Epochs
+- [ ] Per-channel-annotation
 - [X] Zoom Duration/N-Channels
 - [X] Vertical Line
-- [ ] Event Lines
 - [X] Mark Channels (including channel-label)
 - [X] Area Selection
-- [ ] Per-channel-annotation
 
 
 ## Performance
+- [ ] Profiling/Optimizing current code (range-update, LineItem-Initialization)
 - [ ] Downsampling with min/max
-- [ ] Downsampling-test (no omission of peaks)
+- [ ] Downsampling as in hdf5-example
+- [ ] Downsampling-test (with artificial peak-file, no omission of peaks)
 
 
 ## User Interaction
