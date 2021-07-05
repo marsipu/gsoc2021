@@ -9,9 +9,9 @@ from PyQt5.QtGui import QBrush, QColor, QFont, QIcon
 from PyQt5.QtWidgets import QColorDialog, QComboBox, QDialog, QDockWidget, QDoubleSpinBox, QFormLayout, QGraphicsItem, \
     QGraphicsProxyWidget, \
     QGridLayout, \
-    QHBoxLayout, QLabel, \
+    QHBoxLayout, QInputDialog, QLabel, \
     QMainWindow, \
-    QPushButton, \
+    QMessageBox, QPushButton, \
     QScrollBar, \
     QSizePolicy, QSpinBox, QVBoxLayout, \
     QWidget
@@ -299,6 +299,7 @@ class RawPlot(PlotItem):
 
         self.annotation_mode = False
         self.annot_mode_hint = None
+        self.annot_label = None
         self.annot_colors = dict()
 
         self.lines = OrderedDict()
@@ -632,38 +633,6 @@ class AnnotationController:
         for region in self.regions.values():
             region.setMovable(annotation_on)
 
-
-class AnnotLabelModel(QAbstractListModel):
-    def __init__(self, annotations, colors):
-        super().__init__()
-        self.annotations = annotations
-        self.colors = colors
-
-    def _get_label(self, index):
-        return list(set(self.annotations.description))[index.row()]
-
-    def rowCount(self, parent=None):
-        return len(set(self.annotations.description))
-
-    def flags(self, index=QModelIndex()):
-        default_flags = QAbstractListModel.flags(self, index)
-        if index.isValid():
-            return default_flags | Qt.ItemIsEditable
-        else:
-            return default_flags
-
-    def data(self, index, role=None):
-        label = self._get_label(index)
-        if role == Qt.DisplayRole:
-            return str(label)
-        elif role == Qt.BackgroundRole:
-            if label in self.colors:
-                color = self.colors[label]
-            else:
-                color = QColor('red')
-            return QBrush(color)
-
-
 class AnnotationDock(QDockWidget):
     def __init__(self, main):
         super().__init__('Annotations')
@@ -675,10 +644,18 @@ class AnnotationDock(QDockWidget):
         layout = QHBoxLayout()
 
         self.label_cmbx = QComboBox()
-        self.label_model = AnnotLabelModel(self.main.raw.annotations, self.main.annot_colors)
         self.label_cmbx.setModel(self.label_model)
-        self.label_cmbx.currentIndexChanged.connect(self.label_changed)
+        self.label_cmbx.currentTextChanged.connect(self.label_changed)
+        self.label_cmbx.addItems(set(self.main.raw.annotations.description))
         layout.addWidget(self.label_cmbx)
+
+        add_bt = QPushButton('Add Label')
+        add_bt.clicked.connect(self.add_label)
+        layout.addWidget(add_bt)
+
+        rm_bt = QPushButton('Remove Label')
+        rm_bt.clicked.connect(self.remove_label)
+        layout.addWidget(rm_bt)
 
         color_bt = QPushButton('Change Color')
         color_bt.clicked.connect(self.get_color)
@@ -695,9 +672,25 @@ class AnnotationDock(QDockWidget):
         widget.setLayout(layout)
         self.setWidget(widget)
 
-    def label_changed(self, idx):
-        self.onset_bx.setValue(self.main.raw.annotations.onset[idx])
-        self.duration_bx.setValue(self.main.raw.annotations.onset[idx])
+    def add_label(self):
+        new_label = QInputDialog.getText(self, 'Set the name for the new label', 'New label: ')
+        if new_label != '':
+            self.main.annot_labels.append(new_label)
+
+    def remove_label(self):
+        rm_label = self.label_cmbx.currentText()
+        existing_annot = list(self.main.raw.annotations.description).count(rm_label)
+        if existing_annot > 0:
+            answer = QMessageBox.question(self, f'Remove annotations with {rm_label}?',
+                                 f'There exist {existing_annot} annotations with {rm_label}.\n'
+                                 f'Do you really want to remove them?')
+            if answer == QMessageBox.Yes:
+                rm_idxs = np.where(self.main.raw.annotations.description == rm_label)
+                for idx in rm_idxs:
+                    self.main.raw.annotations.delete(idx)
+
+    def label_changed(self, label):
+        self.main.annot_label = label
 
     def onset_changed(self, val):
         current_idx = self.label_cmbx.currentIndex()
