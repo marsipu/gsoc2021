@@ -337,40 +337,17 @@ class BenchmarkWindow(QMainWindow):
     def init_toolbar(self):
         self.toolbar = self.addToolBar('Tools')
 
-        backend_cmbx = QComboBox()
-        backend_cmbx.addItems(self.available_backends.keys())
-        backend_cmbx.setCurrentText(self.backend_name)
-        backend_cmbx.currentTextChanged.connect(self.backend_changed)
-        self.toolbar.addWidget(backend_cmbx)
+        # backend_cmbx = QComboBox()
+        # backend_cmbx.addItems(self.available_backends.keys())
+        # backend_cmbx.setCurrentText(self.backend_name)
+        # backend_cmbx.currentTextChanged.connect(self.backend_changed)
+        # self.toolbar.addWidget(backend_cmbx)
 
         aedit_kwargs = QAction('Edit Parameters', parent=self)
         aedit_kwargs.triggered.connect(partial(KwargDialog, self))
         self.toolbar.addAction(aedit_kwargs)
 
-        self.toolbar.addSeparator()
-
-        adecr_time = QAction('-Time', parent=self)
-        adecr_time.triggered.connect(partial(self.change_duration, -1))
-        self.toolbar.addAction(adecr_time)
-
-        aincr_time = QAction('+Time', parent=self)
-        aincr_time.triggered.connect(partial(self.change_duration, 1))
-        self.toolbar.addAction(aincr_time)
-
-        adecr_nchan = QAction('-Channels', parent=self)
-        adecr_nchan.triggered.connect(partial(self.change_nchan, -1))
-        self.toolbar.addAction(adecr_nchan)
-
-        aincr_nchan = QAction('+Channels', parent=self)
-        aincr_nchan.triggered.connect(partial(self.change_nchan, 1))
-        self.toolbar.addAction(aincr_nchan)
-
-        # Not compatible to other backends, must find better solution for integration into layout
-        ahelp = QAction('Help', parent=self)
-        ahelp.triggered.connect(self.show_help)
-        self.toolbar.addAction(ahelp)
-
-        self.toolbar.addSeparator()
+        # self.toolbar.addSeparator()
 
         self.toolbar.addWidget(QLabel('<b>Benchmarks: </b>'))
         self.benchmark_cmbx = self.get_bm_cmbx()
@@ -404,10 +381,10 @@ class BenchmarkWindow(QMainWindow):
         self.load_backend()
 
     def change_duration(self, step):
-        self.backend.plot_item.change_duration(step)
+        self.backend.plt.change_duration(step)
 
     def change_nchan(self, step):
-        self.backend.plot_item.change_nchan(step)
+        self.backend.plt.change_nchan(step)
 
     def show_fps(self):
         now = time()
@@ -422,7 +399,7 @@ class BenchmarkWindow(QMainWindow):
             else:
                 s = np.clip(dt * 3., 0, 1)
                 self.fps = self.fps * (1 - s) + (1.0 / dt) * s
-            self.backend.plot_item.setTitle(f'{self.fps:.2f} fps')
+            self.backend.plt.setTitle(f'{self.fps:.2f} fps')
             if self.bm_run:
                 self.benchmark_results[self.bm_run].append(self.fps)
 
@@ -453,23 +430,23 @@ class BenchmarkWindow(QMainWindow):
 
     @benchmark
     def benchmark_hscroll(self):
-        self.backend.plot_item.infini_hscroll(1, self)
+        self.backend.plt.infini_hscroll(1, self)
 
     @benchmark
     def benchmark_vscroll(self):
-        self.backend.plot_item.infini_vscroll(1, self)
+        self.backend.plt.infini_vscroll(1, self)
 
     @benchmark
     def benchmark_duration_change(self):
         if self.n_bm % self.change_limit == 0:
             self.duration_bm *= -1
-        self.backend.plot_item.change_duration(self.duration_bm)
+        self.backend.plt.change_duration(self.duration_bm)
 
     @benchmark
     def benchmark_nchan_change(self):
         if self.n_bm % self.change_limit == 0 and self.n_bm != 0:
             self.nchan_bm *= -1
-        self.backend.plot_item.change_nchan(self.nchan_bm)
+        self.backend.plt.change_nchan(self.nchan_bm)
 
     def start_single_benchmark(self):
         self.n_bm = 1
@@ -534,13 +511,10 @@ class BenchmarkWindow(QMainWindow):
         fig = self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])
         fig.canvas.mpl_connect('close_event', self.save_raw)
 
-    def show_help(self):
-        HelpDialog(self.backend)
-
     def showEvent(self, event):
         event.accept()
         # Redraw lines for downsampling to apply instantaneously after showing the window
-        self.backend.plot_item.redraw_lines()
+        self.backend.plt.redraw_lines()
 
     def closeEvent(self, event):
         event.accept()

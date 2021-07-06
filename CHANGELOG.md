@@ -1,4 +1,9 @@
 # Week 5
+## Tuesday, 2021-07-06
+- refactored pyqtgraph-prototype to have only one main (the Top-Level Class, 
+  where I shifted most of the attributes and methods from RawPlot not directly 
+  related to the LinePlot for less confusion)
+
 ## Monday, 2021-07-05
 - working with ephyviewer and hdf5-example
 
