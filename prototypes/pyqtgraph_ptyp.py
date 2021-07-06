@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import QColorDialog, QComboBox, QDialog, QDockWidget, QDoub
     QWidget
 from mne.viz.utils import _compute_scalings
 from pyqtgraph import (AxisItem, GraphicsView, InfiniteLine, LinearRegionItem, PlotCurveItem, PlotItem, TextItem,
-                       ViewBox, functions)
+                       ViewBox, functions, mkBrush, mkPen)
 from pyqtgraph.Qt import QtCore
 
 
@@ -532,16 +532,29 @@ class HelpDialog(QDialog):
 
 
 class AnnotationRegion(LinearRegionItem):
+    gotSelected = QtCore.Signal(object)
     removeRequested = QtCore.Signal(object)
 
     def __init__(self, description, values):
         super().__init__(values=values, orientation='vertical', movable=True, swapMode='sort')
         self.old_onset = values[0]
+        self.selected = False
         self.setToolTip(description)
+
+    def paint(self, p, *args):
+        super().paint(p, *args)
+        if self.selected:
+            p.setBrush(mkBrush(None))
+            p.setPen(mkPen(color='g', width=3))
+            p.drawRect(self.boundingRect())
 
     def mouseClickEvent(self, event):
         event.accept()
-        if event.button() == QtCore.Qt.RightButton and self.movable:
+        if event.button() == QtCore.Qt.LeftButton and self.movable:
+            self.gotSelected.emit(self)
+            self.selected = True
+            self.update()
+        elif event.button() == QtCore.Qt.RightButton and self.movable:
             self.removeRequested.emit(self)
 
     def mouseDragEvent(self, event):
@@ -562,6 +575,7 @@ class AnnotationController:
         self.main = main
         self.first_time = main.raw.first_time
         self.annotations = main.raw.annotations
+        self.selected_region = None
         self.regions = dict()
         self.in_plot = dict()
 
@@ -576,6 +590,7 @@ class AnnotationController:
             region = AnnotationRegion(description=description,
                                       values=(onset, onset + duration))
         region.sigRegionChangeFinished.connect(self.region_changed)
+        region.gotSelected.connect(self.region_selected)
         region.removeRequested.connect(self.remove_region)
         self.regions[onset] = region
 
@@ -593,6 +608,14 @@ class AnnotationController:
         # Remove from annotations
         idx = np.where(self.annotations.onset == onset + self.first_time)
         self.annotations.delete(idx)
+
+    def region_selected(self, region):
+        old_region = self.selected_region
+        # Remove selected-status from old region
+        if old_region:
+            old_region.selected = False
+            old_region.update()
+        self.selected_region = region
 
     def region_changed(self, region):
         idx = np.where(self.annotations.onset == region.old_onset + self.first_time)
@@ -644,7 +667,6 @@ class AnnotationDock(QDockWidget):
         layout = QHBoxLayout()
 
         self.label_cmbx = QComboBox()
-        self.label_cmbx.setModel(self.label_model)
         self.label_cmbx.currentTextChanged.connect(self.label_changed)
         self.label_cmbx.addItems(set(self.main.raw.annotations.description))
         layout.addWidget(self.label_cmbx)
@@ -657,9 +679,9 @@ class AnnotationDock(QDockWidget):
         rm_bt.clicked.connect(self.remove_label)
         layout.addWidget(rm_bt)
 
-        color_bt = QPushButton('Change Color')
-        color_bt.clicked.connect(self.get_color)
-        layout.addWidget(color_bt)
+        # color_bt = QPushButton('Change Color')
+        # color_bt.clicked.connect(self.get_color)
+        # layout.addWidget(color_bt)
 
         self.onset_bx = QDoubleSpinBox()
         self.onset_bx.valueChanged.connect(self.onset_changed)
