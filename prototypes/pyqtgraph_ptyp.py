@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog, QDockWid
                              QDoubleSpinBox, QFormLayout, QGraphicsItem, QGridLayout,
                              QHBoxLayout, QInputDialog, QLabel, QMainWindow,
                              QMessageBox, QPushButton, QScrollBar, QSizePolicy, QWidget)
-from pyqtgraph import (AxisItem, GraphicsView, InfiniteLine, LinearRegionItem,
+from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine, LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
                        mkBrush, mkPen)
 from pyqtgraph.Qt import QtCore
@@ -166,7 +166,7 @@ class ChannelAxis(AxisItem):
             ch_name = ch_name[0]
             print(f'{ch_name} clicked!')
             self.main.plt._addrm_bad_channel(ch_name)
-        return super().mouseClickEvent(event)
+        # return super().mouseClickEvent(event)
 
 
 class TimeScrollBar(QScrollBar):
@@ -251,17 +251,39 @@ class RawViewBox(ViewBox):
         # If we want the context-menu back, uncomment following line
         # super().mouseClickEvent(event)
         if event.button() == QtCore.Qt.LeftButton:
-            self.main.add_vline(self.mapSceneToView(event.scenePos()).x())
+            self.main.plt.add_vline(self.mapSceneToView(event.scenePos()).x())
         elif event.button() == QtCore.Qt.RightButton:
-            self.main.remove_vline()
+            self.main.plt.remove_vline()
+
+
+class VLineLabel(InfLineLabel):
+    def __init__(self, vline):
+        super().__init__(vline, text='Time: {value:.3f}', position=0.975,
+                         fill='g', color='b', movable=True)
+        self.vline = vline
+
+    def mouseDragEvent(self, ev):
+        if self.movable and ev.button() == QtCore.Qt.LeftButton:
+            if ev.isStart():
+                self.vline.moving = True
+                self.cursorOffset = self.vline.pos() - self.mapToView(ev.buttonDownPos())
+            ev.accept()
+
+            if not self.vline.moving:
+                return
+
+            self.vline.setPos(self.cursorOffset + self.mapToView(ev.pos()))
+            self.vline.sigDragged.emit(self)
+            if ev.isFinish():
+                self.vline.moving = False
+                self.vline.sigPositionChangeFinished.emit(self)
 
 
 class VLine(InfiniteLine):
-    def __init__(self, pos):
+    def __init__(self, pos, bounds):
         super().__init__(pos, pen='g', hoverPen='y',
-                         movable=True, label='Time: {value:.3f}',
-                         labelOpts={'position': 0.95, 'fill': 'g',
-                                    'color': 'b'})
+                         movable=True, bounds=bounds)
+        self.line = VLineLabel(self)
 
 
 class RawPlot(PlotItem):
@@ -324,12 +346,12 @@ class RawPlot(PlotItem):
 
     def _addrm_bad_channel(self, ch_name, add=True):
         line = self.lines[ch_name][0]
-        if add and ch_name not in self.raw.info['bads']:
-            self.raw.info['bads'].append(ch_name)
+        if add and ch_name not in self.main.raw.info['bads']:
+            self.main.raw.info['bads'].append(ch_name)
             line.isbad = True
             print(f'{ch_name} added to bad channels!')
-        elif ch_name in self.raw.info['bads']:
-            self.raw.info['bads'].remove(ch_name)
+        elif ch_name in self.main.raw.info['bads']:
+            self.main.raw.info['bads'].remove(ch_name)
             line.isbad = False
             print(f'{ch_name} removed from bad channels!')
 
@@ -366,20 +388,20 @@ class RawPlot(PlotItem):
             min_ch_idx = min([v[1] for v in self.lines.values()]) - 1
             ymin_ch_idx = ymin
             for idx in reversed(range(ymin_ch_idx, min_ch_idx)):
-                ch_name = self.raw.ch_names[idx]
-                self.add_line(idx, self.data[idx], ch_name)
+                ch_name = self.main.raw.ch_names[idx]
+                self.add_line(idx, self.main.data[idx], ch_name)
                 self.lines.move_to_end(ch_name, last=False)
 
             max_ch_idx = max([v[1] for v in self.lines.values()])
             ymax_ch_idx = ymax - 2
             for idx in range(max_ch_idx, ymax_ch_idx):
-                ch_name = self.raw.ch_names[idx]
-                self.add_line(idx, self.data[idx], ch_name)
+                ch_name = self.main.raw.ch_names[idx]
+                self.add_line(idx, self.main.data[idx], ch_name)
                 self.lines.move_to_end(ch_name, last=True)
         else:
             for idx in range(ymin, ymax):
-                ch_name = self.raw.ch_names[idx]
-                self.add_line(idx, self.data[idx], ch_name)
+                ch_name = self.main.raw.ch_names[idx]
+                self.add_line(idx, self.main.data[idx], ch_name)
                 self.lines.move_to_end(ch_name, last=True)
 
     def hscroll(self, step):
@@ -459,7 +481,7 @@ class RawPlot(PlotItem):
         # Remove vline if already shown
         self.remove_vline()
 
-        self.vline = VLine(pos)
+        self.vline = VLine(pos, bounds=(0, self.xmax))
         self.addItem(self.vline)
 
     def toggle_annot_hint(self, annotation_mode):
