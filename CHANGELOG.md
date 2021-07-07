@@ -1,4 +1,8 @@
 # Week 5
+## Wednesday, 2021-07-07
+- making dragging of Vline-label work too
+- simplify yrange-update (to prepare easier scrolling-troubleshooting)
+
 ## Tuesday, 2021-07-06
 - refactored pyqtgraph-prototype to have only one main (the Top-Level Class, 
   where I shifted most of the attributes and methods from RawPlot not directly 

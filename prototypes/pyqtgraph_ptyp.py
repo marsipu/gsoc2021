@@ -199,7 +199,7 @@ class ChannelScrollBar(QScrollBar):
         self.main = main
 
         self.setMinimum(0)
-        self.setMaximum(self.main.plt.ymax - self.main.nchan - 2)
+        self.setMaximum(self.main.plt.ymax - self.main.nchan - 1)
         self.update_nchan()
         self.setSingleStep(1)
         self.setFocusPolicy(Qt.WheelFocus)
@@ -207,12 +207,12 @@ class ChannelScrollBar(QScrollBar):
 
     def channel_changed(self, value):
         new_ymin = value
-        new_ymax = value + self.main.nchan + 2
+        new_ymax = value + self.main.nchan + 1
         self.main.plt.setYRange(new_ymin, new_ymax, padding=0)
 
     def update_nchan(self):
         self.setPageStep(self.main.nchan)
-        self.setMaximum(self.main.plt.ymax - self.main.nchan - 2)
+        self.setMaximum(self.main.plt.ymax - self.main.nchan - 1)
 
     def keyPressEvent(self, event):
         # Let main handle the keypress
@@ -255,10 +255,20 @@ class RawViewBox(ViewBox):
         elif event.button() == QtCore.Qt.RightButton:
             self.main.plt.remove_vline()
 
+    def wheelEvent(self, ev, axis=None):
+        ev.accept()
+        scroll = -1 * ev.delta() / 120
+        if ev.orientation() == QtCore.Qt.Horizontal:
+            print(f'Horizontal-Delta: {ev.delta()}')
+            self.main.plt.hscroll(scroll * self.duration / 100)
+        elif ev.orientation() == QtCore.Qt.Vertical:
+            print(f'Vertical-Delta: {ev.delta()}')
+            self.main.plt.vscrolL(scroll)
+
 
 class VLineLabel(InfLineLabel):
     def __init__(self, vline):
-        super().__init__(vline, text='Time: {value:.3f}', position=0.975,
+        super().__init__(vline, text='{value:.3f} s', position=0.975,
                          fill='g', color='b', movable=True)
         self.vline = vline
 
@@ -293,7 +303,7 @@ class RawPlot(PlotItem):
                            'left': ChannelAxis(main)}
         super().__init__(viewBox=RawViewBox(main), axisItems=self.axis_items)
 
-        self.lines = OrderedDict()
+        self.lines = dict()
 
         # Additional GraphicsItems
         self.vline = None
@@ -308,12 +318,12 @@ class RawPlot(PlotItem):
 
         # Configure XY-Range
         self.xmax = main.times[-1]
-        self.ymax = main.data.shape[0] + 2  # Add one empty line as padding at top and bottom
+        self.ymax = main.data.shape[0] + 1  # Add one empty line as padding at top and bottom
         self.setXRange(0, main.duration, padding=0)
         self.setLimits(xMin=0, xMax=self.xmax,
                        yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
-        self.setYRange(0, main.nchan + 2, padding=0)
+        self.setYRange(0, main.nchan + 1, padding=0)
 
         # Add lines
         for ch_idx, (ch_data, ch_name) in enumerate(zip(self.main.data[:main.nchan],
@@ -377,32 +387,16 @@ class RawPlot(PlotItem):
         self.xrange_changed(None, self.getViewBox().viewRange()[0])
 
     def yrange_changed(self, _, yrange):
-        ymin, ymax = int(yrange[0]), int(yrange[1])
-        remove_lines = [k for k in self.lines
-                        if self.lines[k][1] <= ymin
-                        or self.lines[k][1] >= ymax - 1]
+        new_ypos = list(range(int(yrange[0] + 1), int(yrange[1]) + 1))
+        # Remove lines outside of view-range
+        remove_lines = [k for k in self.lines if self.lines[k][1] not in new_ypos]
         for ch_name in remove_lines:
             self.remove_line(ch_name)
-
-        if len(self.lines) > 0:
-            min_ch_idx = min([v[1] for v in self.lines.values()]) - 1
-            ymin_ch_idx = ymin
-            for idx in reversed(range(ymin_ch_idx, min_ch_idx)):
-                ch_name = self.main.raw.ch_names[idx]
-                self.add_line(idx, self.main.data[idx], ch_name)
-                self.lines.move_to_end(ch_name, last=False)
-
-            max_ch_idx = max([v[1] for v in self.lines.values()])
-            ymax_ch_idx = ymax - 2
-            for idx in range(max_ch_idx, ymax_ch_idx):
-                ch_name = self.main.raw.ch_names[idx]
-                self.add_line(idx, self.main.data[idx], ch_name)
-                self.lines.move_to_end(ch_name, last=True)
-        else:
-            for idx in range(ymin, ymax):
-                ch_name = self.main.raw.ch_names[idx]
-                self.add_line(idx, self.main.data[idx], ch_name)
-                self.lines.move_to_end(ch_name, last=True)
+        # Add new lines
+        add_idxs = [p - 1 for p in new_ypos if p not in [self.lines[k][1] for k in self.lines]]
+        for aidx in add_idxs:
+            ch_name = self.main.raw.ch_names[aidx]
+            self.add_line(aidx, self.main.data[aidx], ch_name)
 
     def hscroll(self, step):
         # Get current range and add step to it
@@ -842,42 +836,42 @@ class PyQtGraphPtyp(QMainWindow):
             if event.modifiers() == Qt.ControlModifier:
                 self.plt.hscroll(-1)
             else:
-                self.plt.hscroll(-self.plt.duration / 2)
+                self.plt.hscroll(-self.duration / 2)
         elif event.key() == Qt.Key_Right:
             if event.modifiers() == Qt.ControlModifier:
                 self.plt.hscroll(1)
             else:
-                self.plt.hscroll(self.plt.duration / 2)
+                self.plt.hscroll(self.duration / 2)
         elif event.key() == Qt.Key_Up:
             if event.modifiers() == Qt.ControlModifier:
                 self.plt.vscroll(-1)
             else:
-                self.plt.vscroll(-self.plt.nchan / 2)
+                self.plt.vscroll(int(-self.nchan / 2))
         elif event.key() == Qt.Key_Down:
             if event.modifiers() == Qt.ControlModifier:
                 self.plt.vscroll(1)
             else:
-                self.plt.vscroll(self.plt.nchan / 2)
+                self.plt.vscroll(int(self.nchan / 2))
         elif event.key() == Qt.Key_Home:
             if event.modifiers() == Qt.ControlModifier:
                 self.plt.change_duration(-1)
             else:
-                self.plt.change_duration(-self.plt.duration / 4)
+                self.plt.change_duration(-self.duration / 4)
         elif event.key() == Qt.Key_End:
             if event.modifiers() == Qt.ControlModifier:
                 self.plt.change_duration(1)
             else:
-                self.plt.change_duration(self.plt.duration / 4)
+                self.plt.change_duration(self.duration / 4)
         elif event.key() == Qt.Key_PageDown:
             if event.modifiers() == Qt.ControlModifier:
                 self.plt.change_nchan(-1)
             else:
-                self.plt.change_nchan(-self.plt.nchan / 4)
+                self.plt.change_nchan(int(-self.nchan / 4))
         elif event.key() == Qt.Key_PageUp:
             if event.modifiers() == Qt.ControlModifier:
                 self.plt.change_nchan(1)
             else:
-                self.plt.change_nchan(self.plt.nchan / 4)
+                self.plt.change_nchan(int(self.nchan / 4))
         elif event.key() == Qt.Key_A:
             self.annotation_mode = not self.annotation_mode
             self.toggle_annot_mode()
