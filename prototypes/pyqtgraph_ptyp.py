@@ -2,6 +2,7 @@ import datetime
 import platform
 from collections import OrderedDict
 from functools import partial
+from math import floor
 
 import numpy as np
 from PyQt5.QtCore import Qt
@@ -85,7 +86,6 @@ class RawCurveItem(PlotCurveItem):
 
         self.setData(visible_x, visible_y)
         self.setPos(0, self.ypos)
-        self.resetTransform()
 
     def mouseClickEvent(self, ev):
         if not self.clickable or ev.button() != Qt.MouseButton.LeftButton:
@@ -133,7 +133,9 @@ class ChannelAxis(AxisItem):
         super().__init__(orientation='left')
 
     def tickValues(self, minVal, maxVal, size):
-        tick_values = [(1, [self.main.plt.lines[k][1] for k in self.main.plt.lines.keys()])]
+        minVal, maxVal = sorted((minVal, maxVal))
+        values = list(range(round(minVal) + 1, round(maxVal)))
+        tick_values = [(1, values)]
         return tick_values
 
     def tickStrings(self, values, scale, spacing):
@@ -157,7 +159,7 @@ class ChannelAxis(AxisItem):
     def mouseClickEvent(self, event):
         # Clean up channel-texts
         self.ch_texts = {k: v for k, v in self.ch_texts.items()
-                         if k in self.main.plt.lines}
+                         if k in [li.ch_name for li in self.main.plt.lines]}
         # Get channel-name from position of channel-label
         ypos = event.scenePos().y()
         ch_name = [chn for chn in self.ch_texts
@@ -165,7 +167,8 @@ class ChannelAxis(AxisItem):
         if len(ch_name) > 0:
             ch_name = ch_name[0]
             print(f'{ch_name} clicked!')
-            self.main.plt._addrm_bad_channel(ch_name)
+            line = [li for li in self.main.plt.lines if li.ch_name == ch_name][0]
+            self.main.plt.addrm_bad_channel(line)
         # return super().mouseClickEvent(event)
 
 
@@ -179,10 +182,15 @@ class TimeScrollBar(QScrollBar):
         self.update_duration()
         self.setSingleStep(1)
         self.setFocusPolicy(Qt.WheelFocus)
+        # Because valueChanged is needed (captures every input to scrollbar,
+        # not just sliderMoved), there has to be made a differentiation
+        # between internal and external changes.
+        self.external_change = False
         self.valueChanged.connect(self.time_changed)
 
     def time_changed(self, value):
-        self.main.plt.setXRange(value, value + self.main.duration, padding=0)
+        if not self.external_change:
+            self.main.plt.setXRange(value, value + self.main.duration, padding=0)
 
     def update_duration(self):
         self.setPageStep(self.main.duration)
@@ -203,12 +211,17 @@ class ChannelScrollBar(QScrollBar):
         self.update_nchan()
         self.setSingleStep(1)
         self.setFocusPolicy(Qt.WheelFocus)
+        # Because valueChanged is needed (captures every input to scrollbar,
+        # not just sliderMoved), there has to be made a differentiation
+        # between internal and external changes.
+        self.external_change = False
         self.valueChanged.connect(self.channel_changed)
 
     def channel_changed(self, value):
         new_ymin = value
         new_ymax = value + self.main.nchan + 1
-        self.main.plt.setYRange(new_ymin, new_ymax, padding=0)
+        if not self.external_change:
+            self.main.plt.setYRange(new_ymin, new_ymax, padding=0)
 
     def update_nchan(self):
         self.setPageStep(self.main.nchan)
@@ -222,6 +235,7 @@ class ChannelScrollBar(QScrollBar):
 class RawViewBox(ViewBox):
     def __init__(self, main):
         super().__init__(invertY=True)
+        self.enableAutoRange(enable=False, x=False, y=False)
         self.main = main
         self._drag_start = None
         self._drag_region = None
@@ -229,23 +243,24 @@ class RawViewBox(ViewBox):
     def mouseDragEvent(self, event, axis=None):
         event.accept()
 
-        if event.button() == Qt.LeftButton and self.main.annotation_mode:
-            if event.isStart():
-                self._drag_start = self.mapSceneToView(event.scenePos()).x()
-                self._drag_region = AnnotationRegion(description=self.main.annot_label,
-                                                     values=(self._drag_start, self._drag_start))
-                self.main.plt.addItem(self._drag_region)
-            elif event.isFinish():
-                drag_stop = self.mapSceneToView(event.scenePos()).x()
-                self._drag_region.setRegion((self._drag_start, drag_stop))
-                onset = min(self._drag_start, drag_stop)
-                duration = abs(self._drag_start - drag_stop)
-                self.main.annot_ctrl.add_annotation(onset, duration, self._drag_region)
-            else:
-                self._drag_region.setRegion((self._drag_start,
-                                             self.mapSceneToView(event.scenePos()).x()))
-        else:
-            super().mouseDragEvent(event, axis)
+        if event.button() == Qt.LeftButton:
+            if self.main.annotation_mode:
+                if event.isStart():
+                    self._drag_start = self.mapSceneToView(event.scenePos()).x()
+                    self._drag_region = AnnotationRegion(description=self.main.annot_label,
+                                                         values=(self._drag_start, self._drag_start))
+                    self.main.plt.addItem(self._drag_region)
+                elif event.isFinish():
+                    drag_stop = self.mapSceneToView(event.scenePos()).x()
+                    self._drag_region.setRegion((self._drag_start, drag_stop))
+                    onset = min(self._drag_start, drag_stop)
+                    duration = abs(self._drag_start - drag_stop)
+                    self.main.annot_ctrl.add_annotation(onset, duration, self._drag_region)
+                else:
+                    self._drag_region.setRegion((self._drag_start,
+                                                 self.mapSceneToView(event.scenePos()).x()))
+            # else:
+            #     super().mouseDragEvent(event, axis)
 
     def mouseClickEvent(self, event):
         # If we want the context-menu back, uncomment following line
@@ -259,11 +274,10 @@ class RawViewBox(ViewBox):
         ev.accept()
         scroll = -1 * ev.delta() / 120
         if ev.orientation() == QtCore.Qt.Horizontal:
-            print(f'Horizontal-Delta: {ev.delta()}')
-            self.main.plt.hscroll(scroll * self.duration / 100)
+            hscroll = scroll * self.main.duration / 100
+            self.main.plt.hscroll(hscroll)
         elif ev.orientation() == QtCore.Qt.Vertical:
-            print(f'Vertical-Delta: {ev.delta()}')
-            self.main.plt.vscrolL(scroll)
+            self.main.plt.vscroll(scroll)
 
 
 class VLineLabel(InfLineLabel):
@@ -527,7 +541,7 @@ class RawPlot(PlotItem):
                            'left': ChannelAxis(main)}
         super().__init__(viewBox=RawViewBox(main), axisItems=self.axis_items)
 
-        self.lines = dict()
+        self.lines = list()
 
         # Additional GraphicsItems
         self.vline = None
@@ -537,17 +551,17 @@ class RawPlot(PlotItem):
         self._hscroll_dir = 1
         self._vscroll_dir = 1
 
-        self.vb.disableAutoRange(ViewBox.XYAxes)
+        # Hide AutoRange-Button
         self.hideButtons()
 
         # Configure XY-Range
         self.xmax = main.times[-1]
         self.ymax = main.data.shape[0] + 1  # Add one empty line as padding at top and bottom
         self.setXRange(0, main.duration, padding=0)
+        self.setYRange(0, main.nchan + 1, padding=0)
         self.setLimits(xMin=0, xMax=self.xmax,
                        yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
-        self.setYRange(0, main.nchan + 1, padding=0)
 
         # Add lines
         for ch_idx, (ch_data, ch_name) in enumerate(zip(self.main.data[:main.nchan],
@@ -564,30 +578,27 @@ class RawPlot(PlotItem):
                             isbad=ch_name in self.main.raw.info['bads'])
         # Add Item early to have access to viewBox
         self.addItem(item)
-        self.lines[ch_name] = (item, ypos)
+        self.lines.append(item)
 
+        item.sigClicked.connect(self.bad_changed)
         item.xrange_changed(self.getViewBox().viewRange()[0])
-        self.nchan = len(self.lines)
 
         if self.main.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
-        item.sigClicked.connect(self.bad_changed)
 
-    def remove_line(self, ch_name):
-        self.removeItem(self.lines[ch_name][0])
-        self.lines.pop(ch_name)
-        self.main.nchan = len(self.lines)
+    def remove_line(self, line):
+        self.removeItem(line)
+        self.lines.remove(line)
 
-    def _addrm_bad_channel(self, ch_name, add=True):
-        line = self.lines[ch_name][0]
-        if add and ch_name not in self.main.raw.info['bads']:
-            self.main.raw.info['bads'].append(ch_name)
+    def addrm_bad_channel(self, line, add=True):
+        if add and line.ch_name not in self.main.raw.info['bads']:
+            self.main.raw.info['bads'].append(line.ch_name)
             line.isbad = True
-            print(f'{ch_name} added to bad channels!')
-        elif ch_name in self.main.raw.info['bads']:
-            self.main.raw.info['bads'].remove(ch_name)
+            print(f'{line.ch_name} added to bad channels!')
+        elif line.ch_name in self.main.raw.info['bads']:
+            self.main.raw.info['bads'].remove(line.ch_name)
             line.isbad = False
-            print(f'{ch_name} removed from bad channels!')
+            print(f'{line.ch_name} removed from bad channels!')
 
         # Update line color
         line.update_bad_color()
@@ -597,11 +608,10 @@ class RawPlot(PlotItem):
         self.axes['left']['item'].update()
 
     def bad_changed(self, line, ev):
-        self._addrm_bad_channel(line.ch_name, add=line.isbad)
+        self.addrm_bad_channel(line, add=line.isbad)
 
     def xrange_changed(self, _, xrange):
-        for ch_name in self.lines:
-            line = self.lines[ch_name][0]
+        for line in self.lines:
             line.xrange_changed(xrange)
 
         if self.main.show_annotations:
@@ -611,13 +621,13 @@ class RawPlot(PlotItem):
         self.xrange_changed(None, self.getViewBox().viewRange()[0])
 
     def yrange_changed(self, _, yrange):
-        new_ypos = list(range(int(yrange[0] + 1), int(yrange[1]) + 1))
+        new_ypos = list(range(round(yrange[0]) + 1, round(yrange[1])))
         # Remove lines outside of view-range
-        remove_lines = [k for k in self.lines if self.lines[k][1] not in new_ypos]
-        for ch_name in remove_lines:
-            self.remove_line(ch_name)
+        remove_lines = [li for li in self.lines if li.ypos not in new_ypos]
+        for rm_line in remove_lines:
+            self.remove_line(rm_line)
         # Add new lines
-        add_idxs = [p - 1 for p in new_ypos if p not in [self.lines[k][1] for k in self.lines]]
+        add_idxs = [p - 1 for p in new_ypos if p not in [li.ypos for li in self.lines]]
         for aidx in add_idxs:
             ch_name = self.main.raw.ch_names[aidx]
             self.add_line(aidx, self.main.data[aidx], ch_name)
@@ -647,10 +657,10 @@ class RawPlot(PlotItem):
 
         if ymin < 0:
             ymin = 0
-            ymax = ymin + self.main.nchan + 2
+            ymax = self.main.nchan + 1
         elif ymax > self.ymax:
             ymax = self.ymax
-            ymin = ymax - self.main.nchan - 2
+            ymin = ymax - self.main.nchan - 1
 
         self.setYRange(ymin, ymax, padding=0)
 
@@ -819,11 +829,17 @@ class PyQtGraphPtyp(QMainWindow):
         ]
 
     def xrange_changed(self, _, xrange):
+        # Mark change as external
+        self.time_bar.external_change = True
         self.time_bar.setValue(xrange[0])
+        self.time_bar.external_change = False
         self.time_bar.update_duration()
 
     def yrange_changed(self, _, yrange):
+        # Mark change as external
+        self.channel_bar.external_change = True
         self.channel_bar.setValue(yrange[0])
+        self.channel_bar.external_change = False
         self.channel_bar.update_nchan()
 
     def toggle_annot_mode(self):

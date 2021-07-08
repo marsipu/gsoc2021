@@ -14,6 +14,7 @@
 - [X] Vertical Scrolling (Only load shown channels in ViewBox)
 - [X] Horizontal Scrollbar
 - [X] Vertical Scrollbar
+- [ ] changing scaling
 - [ ] channel-type colors
 - [ ] Annotation-Management
 - [ ] Event Lines
@@ -28,13 +29,13 @@
 
 ## Performance
 - [ ] Profiling/Optimizing current code (range-update, LineItem-Initialization)
-- [ ] Downsampling with min/max
 - [ ] Downsampling as in hdf5-example
 - [ ] Downsampling-test (with artificial peak-file, no omission of peaks)
 
 
 ## User Interaction
 - [X] Arrow-Keys for left-right-movement
+- [ ] Right-Click Dragging for scaling
 
 ## Advanced Features
 - [ ] change distance between channels dynamically (up to zero==butterfly)

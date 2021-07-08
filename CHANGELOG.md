@@ -1,4 +1,7 @@
 # Week 5
+## Thursday, 2021-07-08
+- Fixed bugs in scrolling-behaviour
+
 ## Wednesday, 2021-07-07
 - making dragging of Vline-label work too
 - simplify yrange-update (to prepare easier scrolling-troubleshooting)
