@@ -296,203 +296,6 @@ class VLine(InfiniteLine):
         self.line = VLineLabel(self)
 
 
-class RawPlot(PlotItem):
-    def __init__(self, main):
-        self.main = main
-        self.axis_items = {'bottom': TimeAxis(main),
-                           'left': ChannelAxis(main)}
-        super().__init__(viewBox=RawViewBox(main), axisItems=self.axis_items)
-
-        self.lines = dict()
-
-        # Additional GraphicsItems
-        self.vline = None
-        self.annot_mode_hint = None
-
-        # Pointers for continous scrolling
-        self._hscroll_dir = 1
-        self._vscroll_dir = 1
-
-        self.vb.disableAutoRange(ViewBox.XYAxes)
-        self.hideButtons()
-
-        # Configure XY-Range
-        self.xmax = main.times[-1]
-        self.ymax = main.data.shape[0] + 1  # Add one empty line as padding at top and bottom
-        self.setXRange(0, main.duration, padding=0)
-        self.setLimits(xMin=0, xMax=self.xmax,
-                       yMin=0, yMax=self.ymax)
-        self.setLabel('bottom', 'Time', 's')
-        self.setYRange(0, main.nchan + 1, padding=0)
-
-        # Add lines
-        for ch_idx, (ch_data, ch_name) in enumerate(zip(self.main.data[:main.nchan],
-                                                        self.main.raw.ch_names[:main.nchan])):
-            self.add_line(ch_idx, ch_data, ch_name)
-
-        self.sigXRangeChanged.connect(self.xrange_changed)
-        self.sigYRangeChanged.connect(self.yrange_changed)
-
-    def add_line(self, ch_idx, ch_data, ch_name):
-        ypos = ch_idx + 1
-        item = RawCurveItem(data=ch_data, times=self.main.times, ch_name=ch_name, ypos=ypos,
-                            sfreq=self.main.raw.info['sfreq'], ds=self.main.ds,
-                            isbad=ch_name in self.main.raw.info['bads'])
-        # Add Item early to have access to viewBox
-        self.addItem(item)
-        self.lines[ch_name] = (item, ypos)
-
-        item.xrange_changed(self.getViewBox().viewRange()[0])
-        self.nchan = len(self.lines)
-
-        if self.main.enable_cache:
-            item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
-        item.sigClicked.connect(self.bad_changed)
-
-    def remove_line(self, ch_name):
-        self.removeItem(self.lines[ch_name][0])
-        self.lines.pop(ch_name)
-        self.main.nchan = len(self.lines)
-
-    def _addrm_bad_channel(self, ch_name, add=True):
-        line = self.lines[ch_name][0]
-        if add and ch_name not in self.main.raw.info['bads']:
-            self.main.raw.info['bads'].append(ch_name)
-            line.isbad = True
-            print(f'{ch_name} added to bad channels!')
-        elif ch_name in self.main.raw.info['bads']:
-            self.main.raw.info['bads'].remove(ch_name)
-            line.isbad = False
-            print(f'{ch_name} removed from bad channels!')
-
-        # Update line color
-        line.update_bad_color()
-
-        # Update Channel-Axis
-        self.axes['left']['item'].picture = None
-        self.axes['left']['item'].update()
-
-    def bad_changed(self, line, ev):
-        self._addrm_bad_channel(line.ch_name, add=line.isbad)
-
-    def xrange_changed(self, _, xrange):
-        for ch_name in self.lines:
-            line = self.lines[ch_name][0]
-            line.xrange_changed(xrange)
-
-        if self.main.show_annotations:
-            self.main.annot_ctrl.update_range(*xrange)
-
-    def redraw_lines(self):
-        self.xrange_changed(None, self.getViewBox().viewRange()[0])
-
-    def yrange_changed(self, _, yrange):
-        new_ypos = list(range(int(yrange[0] + 1), int(yrange[1]) + 1))
-        # Remove lines outside of view-range
-        remove_lines = [k for k in self.lines if self.lines[k][1] not in new_ypos]
-        for ch_name in remove_lines:
-            self.remove_line(ch_name)
-        # Add new lines
-        add_idxs = [p - 1 for p in new_ypos if p not in [self.lines[k][1] for k in self.lines]]
-        for aidx in add_idxs:
-            ch_name = self.main.raw.ch_names[aidx]
-            self.add_line(aidx, self.main.data[aidx], ch_name)
-
-    def hscroll(self, step):
-        # Get current range and add step to it
-        xmin, xmax = [i + step for i in self.vb.viewRange()[0]]
-
-        if xmin < 0:
-            xmin = 0
-            xmax = xmin + self.main.duration
-        elif xmax > self.xmax:
-            xmax = self.xmax
-            xmin = xmax - self.main.duration
-
-        self.setXRange(xmin, xmax, padding=0)
-
-    def infini_hscroll(self, step, parent):
-        if parent.n_bm % (int(self.xmax / step) - self.main.duration) == 0:
-            self._hscroll_dir *= -1
-        step *= self._hscroll_dir
-        self.hscroll(step)
-
-    def vscroll(self, step):
-        # Get current range and add step to it
-        ymin, ymax = [i + step for i in self.vb.viewRange()[1]]
-
-        if ymin < 0:
-            ymin = 0
-            ymax = ymin + self.main.nchan + 2
-        elif ymax > self.ymax:
-            ymax = self.ymax
-            ymin = ymax - self.main.nchan - 2
-
-        self.setYRange(ymin, ymax, padding=0)
-
-    def infini_vscroll(self, step, parent):
-        if parent.n_bm % (int(self.ymax / step) - self.main.nchan) == 0:
-            self._vscroll_dir *= -1
-        step *= self._vscroll_dir
-        self.vscroll(step)
-
-    def change_duration(self, step):
-        xmin, xmax = self.vb.viewRange()[0]
-        newxmax = xmax + step
-        newxmin = xmin - step
-        if 0 < newxmax < self.xmax:
-            xmax = newxmax
-        elif 0 < newxmin < self.xmax:
-            xmin = newxmin
-        else:
-            return
-
-        self.main.duration += step
-        self.setXRange(xmin, xmax, padding=0)
-
-    # Todo: Make failsafe at boundaries
-    def change_nchan(self, step):
-        ymin, ymax = self.vb.viewRange()[1]
-        newymax = ymax + step
-        newymin = ymin - step
-        if 2 < newymax < self.ymax:
-            ymax = newymax
-        elif 0 < newymin < self.ymax:
-            ymin = newymin
-        elif newymax > self.ymax:
-            ymax = self.ymax
-        elif newymin < 1:
-            ymin = 1
-
-        self.main.nchan += step
-        self.setYRange(ymin, ymax, padding=0)
-
-    def remove_vline(self):
-        if self.vline:
-            self.removeItem(self.vline)
-
-    def add_vline(self, pos):
-        # Remove vline if already shown
-        self.remove_vline()
-
-        self.vline = VLine(pos, bounds=(0, self.xmax))
-        self.addItem(self.vline)
-
-    def toggle_annot_hint(self, annotation_mode):
-        if annotation_mode:
-            self.annot_mode_hint = TextItem('Annotation-Mode', color='r', anchor=(0, 0))
-            self.annot_mode_hint.setPos(0, 0)
-            self.annot_mode_hint.setFont(QFont('AnyStyle', 20, QFont.Bold))
-            self.addItem(self.annot_mode_hint)
-        elif self.annot_mode_hint:
-            self.removeItem(self.annot_mode_hint)
-            self.annot_mode_hint = None
-
-    def keyPressEvent(self, event):
-        # Let main handle the keypress
-        event.ignore()
-
-
 class HelpDialog(QDialog):
     def __init__(self, main):
         super().__init__(main)
@@ -715,6 +518,203 @@ class AnnotationDock(QDockWidget):
                                       f'Choose color for {current_label}')
         if color.isValid():
             self.main.annot_ctrl.annot_colors[current_label] = color
+
+
+class RawPlot(PlotItem):
+    def __init__(self, main):
+        self.main = main
+        self.axis_items = {'bottom': TimeAxis(main),
+                           'left': ChannelAxis(main)}
+        super().__init__(viewBox=RawViewBox(main), axisItems=self.axis_items)
+
+        self.lines = dict()
+
+        # Additional GraphicsItems
+        self.vline = None
+        self.annot_mode_hint = None
+
+        # Pointers for continous scrolling
+        self._hscroll_dir = 1
+        self._vscroll_dir = 1
+
+        self.vb.disableAutoRange(ViewBox.XYAxes)
+        self.hideButtons()
+
+        # Configure XY-Range
+        self.xmax = main.times[-1]
+        self.ymax = main.data.shape[0] + 1  # Add one empty line as padding at top and bottom
+        self.setXRange(0, main.duration, padding=0)
+        self.setLimits(xMin=0, xMax=self.xmax,
+                       yMin=0, yMax=self.ymax)
+        self.setLabel('bottom', 'Time', 's')
+        self.setYRange(0, main.nchan + 1, padding=0)
+
+        # Add lines
+        for ch_idx, (ch_data, ch_name) in enumerate(zip(self.main.data[:main.nchan],
+                                                        self.main.raw.ch_names[:main.nchan])):
+            self.add_line(ch_idx, ch_data, ch_name)
+
+        self.sigXRangeChanged.connect(self.xrange_changed)
+        self.sigYRangeChanged.connect(self.yrange_changed)
+
+    def add_line(self, ch_idx, ch_data, ch_name):
+        ypos = ch_idx + 1
+        item = RawCurveItem(data=ch_data, times=self.main.times, ch_name=ch_name, ypos=ypos,
+                            sfreq=self.main.raw.info['sfreq'], ds=self.main.ds,
+                            isbad=ch_name in self.main.raw.info['bads'])
+        # Add Item early to have access to viewBox
+        self.addItem(item)
+        self.lines[ch_name] = (item, ypos)
+
+        item.xrange_changed(self.getViewBox().viewRange()[0])
+        self.nchan = len(self.lines)
+
+        if self.main.enable_cache:
+            item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        item.sigClicked.connect(self.bad_changed)
+
+    def remove_line(self, ch_name):
+        self.removeItem(self.lines[ch_name][0])
+        self.lines.pop(ch_name)
+        self.main.nchan = len(self.lines)
+
+    def _addrm_bad_channel(self, ch_name, add=True):
+        line = self.lines[ch_name][0]
+        if add and ch_name not in self.main.raw.info['bads']:
+            self.main.raw.info['bads'].append(ch_name)
+            line.isbad = True
+            print(f'{ch_name} added to bad channels!')
+        elif ch_name in self.main.raw.info['bads']:
+            self.main.raw.info['bads'].remove(ch_name)
+            line.isbad = False
+            print(f'{ch_name} removed from bad channels!')
+
+        # Update line color
+        line.update_bad_color()
+
+        # Update Channel-Axis
+        self.axes['left']['item'].picture = None
+        self.axes['left']['item'].update()
+
+    def bad_changed(self, line, ev):
+        self._addrm_bad_channel(line.ch_name, add=line.isbad)
+
+    def xrange_changed(self, _, xrange):
+        for ch_name in self.lines:
+            line = self.lines[ch_name][0]
+            line.xrange_changed(xrange)
+
+        if self.main.show_annotations:
+            self.main.annot_ctrl.update_range(*xrange)
+
+    def redraw_lines(self):
+        self.xrange_changed(None, self.getViewBox().viewRange()[0])
+
+    def yrange_changed(self, _, yrange):
+        new_ypos = list(range(int(yrange[0] + 1), int(yrange[1]) + 1))
+        # Remove lines outside of view-range
+        remove_lines = [k for k in self.lines if self.lines[k][1] not in new_ypos]
+        for ch_name in remove_lines:
+            self.remove_line(ch_name)
+        # Add new lines
+        add_idxs = [p - 1 for p in new_ypos if p not in [self.lines[k][1] for k in self.lines]]
+        for aidx in add_idxs:
+            ch_name = self.main.raw.ch_names[aidx]
+            self.add_line(aidx, self.main.data[aidx], ch_name)
+
+    def hscroll(self, step):
+        # Get current range and add step to it
+        xmin, xmax = [i + step for i in self.vb.viewRange()[0]]
+
+        if xmin < 0:
+            xmin = 0
+            xmax = xmin + self.main.duration
+        elif xmax > self.xmax:
+            xmax = self.xmax
+            xmin = xmax - self.main.duration
+
+        self.setXRange(xmin, xmax, padding=0)
+
+    def infini_hscroll(self, step, parent):
+        if parent.n_bm % (int(self.xmax / step) - self.main.duration) == 0:
+            self._hscroll_dir *= -1
+        step *= self._hscroll_dir
+        self.hscroll(step)
+
+    def vscroll(self, step):
+        # Get current range and add step to it
+        ymin, ymax = [i + step for i in self.vb.viewRange()[1]]
+
+        if ymin < 0:
+            ymin = 0
+            ymax = ymin + self.main.nchan + 2
+        elif ymax > self.ymax:
+            ymax = self.ymax
+            ymin = ymax - self.main.nchan - 2
+
+        self.setYRange(ymin, ymax, padding=0)
+
+    def infini_vscroll(self, step, parent):
+        if parent.n_bm % (int(self.ymax / step) - self.main.nchan) == 0:
+            self._vscroll_dir *= -1
+        step *= self._vscroll_dir
+        self.vscroll(step)
+
+    def change_duration(self, step):
+        xmin, xmax = self.vb.viewRange()[0]
+        newxmax = xmax + step
+        newxmin = xmin - step
+        if 0 < newxmax < self.xmax:
+            xmax = newxmax
+        elif 0 < newxmin < self.xmax:
+            xmin = newxmin
+        else:
+            return
+
+        self.main.duration += step
+        self.setXRange(xmin, xmax, padding=0)
+
+    # Todo: Make failsafe at boundaries
+    def change_nchan(self, step):
+        ymin, ymax = self.vb.viewRange()[1]
+        newymax = ymax + step
+        newymin = ymin - step
+        if 2 < newymax < self.ymax:
+            ymax = newymax
+        elif 0 < newymin < self.ymax:
+            ymin = newymin
+        elif newymax > self.ymax:
+            ymax = self.ymax
+        elif newymin < 1:
+            ymin = 1
+
+        self.main.nchan += step
+        self.setYRange(ymin, ymax, padding=0)
+
+    def remove_vline(self):
+        if self.vline:
+            self.removeItem(self.vline)
+
+    def add_vline(self, pos):
+        # Remove vline if already shown
+        self.remove_vline()
+
+        self.vline = VLine(pos, bounds=(0, self.xmax))
+        self.addItem(self.vline)
+
+    def toggle_annot_hint(self, annotation_mode):
+        if annotation_mode:
+            self.annot_mode_hint = TextItem('Annotation-Mode', color='r', anchor=(0, 0))
+            self.annot_mode_hint.setPos(0, 0)
+            self.annot_mode_hint.setFont(QFont('AnyStyle', 20, QFont.Bold))
+            self.addItem(self.annot_mode_hint)
+        elif self.annot_mode_hint:
+            self.removeItem(self.annot_mode_hint)
+            self.annot_mode_hint = None
+
+    def keyPressEvent(self, event):
+        # Let main handle the keypress
+        event.ignore()
 
 
 class PyQtGraphPtyp(QMainWindow):
