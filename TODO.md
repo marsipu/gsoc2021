@@ -29,7 +29,7 @@
 
 ## Performance
 - [ ] Profiling/Optimizing current code (range-update, LineItem-Initialization)
-- [ ] Downsampling as in hdf5-example
+- [X] Downsampling as in hdf5-example
 - [ ] Downsampling-test (with artificial peak-file, no omission of peaks)
 
 

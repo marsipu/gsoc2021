@@ -261,7 +261,7 @@ class BenchmarkWindow(QMainWindow):
         self.n_limit = 50
 
         # limit for change duration/n-channel benchmarks (stays inside this range)
-        self.change_limit = 10
+        self.change_limit = 20
 
         self.bm_run = None
         self.stop_multi_run = False

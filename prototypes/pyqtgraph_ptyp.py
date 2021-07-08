@@ -5,7 +5,6 @@ from functools import partial
 from math import floor
 
 import numpy as np
-from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog, QDockWidget,
                              QDoubleSpinBox, QFormLayout, QGraphicsItem, QGridLayout,
@@ -18,7 +17,8 @@ from pyqtgraph.Qt import QtCore
 
 
 class RawCurveItem(PlotCurveItem):
-    def __init__(self, data, times, ch_name, ypos, sfreq, ds=1, isbad=False):
+    def __init__(self, data, times, ch_name, ypos, sfreq,
+                 ds, ds_method, ds_chunk_size, isbad):
         super().__init__(clickable=True)
         self._data = data
         self._times = times
@@ -26,6 +26,8 @@ class RawCurveItem(PlotCurveItem):
         self.ypos = ypos
         self.sfreq = sfreq
         self.ds = ds
+        self.ds_method = ds_method
+        self.ds_chunk_size = ds_chunk_size
         self.isbad = isbad
         self.update_bad_color()
 
@@ -51,44 +53,86 @@ class RawCurveItem(PlotCurveItem):
         else:
             self.setPen('k')
 
+    def apply_ds(self, x, y, ds):
+        if self.ds_method == 'subsample':
+            x = x[::ds]
+            y = y[::ds]
+        elif self.ds_method == 'mean':
+            n = len(x) // ds
+            stx = ds // 2  # start of x-values; try to select a somewhat centered point
+            x = x[stx:stx + n * ds:ds]
+            y = y[:n * ds].reshape(n, ds).mean(axis=1)
+        elif self.ds_method == 'peak':
+            n = len(x) // ds
+            x1 = np.empty((n, 2))
+            stx = ds // 2  # start of x-values; try to select a somewhat centered point
+            x1[:] = x[stx:stx + n * ds:ds, np.newaxis]
+            x = x1.reshape(n * 2)
+            y1 = np.empty((n, 2))
+            y2 = y[:n * ds].reshape((n, ds))
+            y1[:, 0] = y2.max(axis=1)
+            y1[:, 1] = y2.min(axis=1)
+            y = y1.reshape(n * 2)
+
+        return x, y
+
     def xrange_changed(self, xrange):
         xmin, xmax = xrange
         start = max(0, int(xmin * self.sfreq))
         stop = min(len(self.data), int(xmax * self.sfreq + 1))
-
         visible_x = self.times[start:stop]
         visible_y = self.data[start:stop]
 
-        # Auto-Downsampling and mean method from pyqtgraph
-        ds = 1
+        # Auto-Downsampling from pyqtgraph
         if self.ds == 'auto':
+            ds = 1
             view = self.getViewBox()
             if view is not None:
                 view_range = view.viewRect()
             else:
                 view_range = None
-            if view_range is not None and len(visible_x) > 1:
-                dx = float(visible_x[-1] - visible_x[0]) / (len(visible_x) - 1)
+            if view_range is not None and len(self.times) > 1:
+                dx = float(self.times[-1] - self.times[0]) / (len(self.times) - 1)
                 if dx != 0.0:
-                    x0 = (view_range.left() - visible_x[0]) / dx
-                    x1 = (view_range.right() - visible_x[0]) / dx
+                    x0 = view_range.left() / dx
+                    x1 = view_range.right() / dx
                     width = self.getViewBox().width()
                     if width != 0.0:
-                        # Auto-Downsampling with 5 samples per pixel
-                        ds = int(max(1, int((x1 - x0) / (width * 5))))
-        elif self.ds > 1:
+                        # Auto-Downsampling with 3 samples per pixel
+                        ds = int(max(1, (x1 - x0) / (width * 3)))
+                        print(f'Auto-Downsampling: {ds}')
+        else:
             ds = self.ds
 
-        if ds > 1:
-            n = len(visible_x) // ds
-            visible_x = visible_x[:n * ds].reshape(n, ds).mean(axis=1)
-            visible_y = visible_y[:n * ds].reshape(n, ds).mean(axis=1)
+        if ds not in [1, None]:
+            if self.ds_chunk_size:
+                chunkSize = (self.ds_chunk_size // ds) * ds
+                sourcePtr = 0
+                x = np.empty(0, dtype=self.times.dtype)
+                y = np.empty(0, dtype=self.data.dtype)
+                data_len = len(visible_x)
+                while sourcePtr < data_len - 1:
+                    xchunk = visible_x[sourcePtr:min(stop, sourcePtr + chunkSize)]
+                    ychunk = visible_y[sourcePtr:min(stop, sourcePtr + chunkSize)]
+                    sourcePtr += len(xchunk)
 
-        self.setData(visible_x, visible_y)
+                    xchunk, ychunk = self.apply_ds(xchunk, ychunk, ds)
+
+                    x = np.append(x, xchunk)
+                    y = np.append(y, ychunk)
+
+            else:
+                x, y = self.apply_ds(visible_x, visible_y, ds)
+
+        else:
+            x = visible_x
+            y = visible_y
+
+        self.setData(x, y)
         self.setPos(0, self.ypos)
 
     def mouseClickEvent(self, ev):
-        if not self.clickable or ev.button() != Qt.MouseButton.LeftButton:
+        if not self.clickable or ev.button() != QtCore.Qt.MouseButton.LeftButton:
             ev.ignore()
             return
         if self.mouseShape().contains(ev.pos()):
@@ -174,14 +218,14 @@ class ChannelAxis(AxisItem):
 
 class TimeScrollBar(QScrollBar):
     def __init__(self, main):
-        super().__init__(Qt.Horizontal)
+        super().__init__(QtCore.Qt.Horizontal)
         self.main = main
 
         self.setMinimum(0)
         self.setMaximum(self.main.plt.xmax - self.main.duration)
         self.update_duration()
         self.setSingleStep(1)
-        self.setFocusPolicy(Qt.WheelFocus)
+        self.setFocusPolicy(QtCore.Qt.WheelFocus)
         # Because valueChanged is needed (captures every input to scrollbar,
         # not just sliderMoved), there has to be made a differentiation
         # between internal and external changes.
@@ -203,14 +247,14 @@ class TimeScrollBar(QScrollBar):
 
 class ChannelScrollBar(QScrollBar):
     def __init__(self, main):
-        super().__init__(Qt.Vertical)
+        super().__init__(QtCore.Qt.Vertical)
         self.main = main
 
         self.setMinimum(0)
         self.setMaximum(self.main.plt.ymax - self.main.nchan - 1)
         self.update_nchan()
         self.setSingleStep(1)
-        self.setFocusPolicy(Qt.WheelFocus)
+        self.setFocusPolicy(QtCore.Qt.WheelFocus)
         # Because valueChanged is needed (captures every input to scrollbar,
         # not just sliderMoved), there has to be made a differentiation
         # between internal and external changes.
@@ -243,7 +287,7 @@ class RawViewBox(ViewBox):
     def mouseDragEvent(self, event, axis=None):
         event.accept()
 
-        if event.button() == Qt.LeftButton:
+        if event.button() == QtCore.Qt.LeftButton:
             if self.main.annotation_mode:
                 if event.isStart():
                     self._drag_start = self.mapSceneToView(event.scenePos()).x()
@@ -575,6 +619,7 @@ class RawPlot(PlotItem):
         ypos = ch_idx + 1
         item = RawCurveItem(data=ch_data, times=self.main.times, ch_name=ch_name, ypos=ypos,
                             sfreq=self.main.raw.info['sfreq'], ds=self.main.ds,
+                            ds_method=self.main.ds_method, ds_chunk_size=self.main.ds_chunk_size,
                             isbad=ch_name in self.main.raw.info['bads'])
         # Add Item early to have access to viewBox
         self.addItem(item)
@@ -729,8 +774,43 @@ class RawPlot(PlotItem):
 
 class PyQtGraphPtyp(QMainWindow):
     def __init__(self, raw, data, times, duration=20,
-                 nchan=30, ds='auto', enable_cache=False,
-                 antialiasing=False, use_opengl=False, show_annotations=True):
+                 nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
+                 enable_cache=False, antialiasing=False, use_opengl=False,
+                 show_annotations=True):
+        """
+        PyQtGraph-Prototype as a new backend for raw.plot() from MNE-Python.
+
+        Parameters
+        ----------
+        raw : mne.io.Raw
+            The Raw-object.
+        data : np.ndarray
+            Scaled data in an array.
+        times : np.ndarray
+            Times in an array.
+        duration : int
+            The time-window to display in seconds.
+        nchan : int
+            The number of channels to display in the window simultaneously.
+        ds : int | str
+            The downsampling-factor. Either 'auto' to get the downsampling-rate
+            from the visible range or an integer (1 means no downsampling).
+            Defaults to 'auto'.
+        ds_method : str
+            The downsampling-method to use (from pyqtgraph).
+            See here under "Optimization-Keywords" for more detail:
+            https://pyqtgraph.readthedocs.io/en/latest/graphicsItems/plotdataitem.html?#
+        ds_chunk_size : int | None
+            Chunk size for downsampling. No chunking if None (default).
+        enable_cache : bool
+            Enable DeviceCoordinateCaching for RawCurveItems.
+        antialiasing : bool
+            Enable Antialiasing.
+        use_opengl : bool
+            Use OpenGL (seems to just work on Linux for now).
+        show_annotations :
+            Wether to show annotations (may impact performance in benchmarks).
+        """
         super().__init__()
 
         # Initialize Attributes
@@ -744,6 +824,8 @@ class PyQtGraphPtyp(QMainWindow):
         self.duration = duration
         self.nchan = nchan
         self.ds = ds
+        self.ds_method = ds_method
+        self.ds_chunk_size = ds_chunk_size
         self.enable_cache = enable_cache
         self.show_annotations = show_annotations
 
@@ -777,7 +859,7 @@ class PyQtGraphPtyp(QMainWindow):
 
         # Initialize Annotation-Dock
         self.annot_dock = AnnotationDock(self)
-        self.addDockWidget(Qt.TopDockWidgetArea, self.annot_dock)
+        self.addDockWidget(QtCore.Qt.TopDockWidgetArea, self.annot_dock)
         self.annot_dock.setVisible(False)
 
         # Initialize Toolbar
@@ -848,49 +930,49 @@ class PyQtGraphPtyp(QMainWindow):
         self.plt.toggle_annot_hint(self.annotation_mode)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Left:
-            if event.modifiers() == Qt.ControlModifier:
+        if event.key() == QtCore.Qt.Key_Left:
+            if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.hscroll(-1)
             else:
                 self.plt.hscroll(-self.duration / 2)
-        elif event.key() == Qt.Key_Right:
-            if event.modifiers() == Qt.ControlModifier:
+        elif event.key() == QtCore.Qt.Key_Right:
+            if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.hscroll(1)
             else:
                 self.plt.hscroll(self.duration / 2)
-        elif event.key() == Qt.Key_Up:
-            if event.modifiers() == Qt.ControlModifier:
+        elif event.key() == QtCore.Qt.Key_Up:
+            if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.vscroll(-1)
             else:
                 self.plt.vscroll(int(-self.nchan / 2))
-        elif event.key() == Qt.Key_Down:
-            if event.modifiers() == Qt.ControlModifier:
+        elif event.key() == QtCore.Qt.Key_Down:
+            if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.vscroll(1)
             else:
                 self.plt.vscroll(int(self.nchan / 2))
-        elif event.key() == Qt.Key_Home:
-            if event.modifiers() == Qt.ControlModifier:
+        elif event.key() == QtCore.Qt.Key_Home:
+            if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.change_duration(-1)
             else:
                 self.plt.change_duration(-self.duration / 4)
-        elif event.key() == Qt.Key_End:
-            if event.modifiers() == Qt.ControlModifier:
+        elif event.key() == QtCore.Qt.Key_End:
+            if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.change_duration(1)
             else:
                 self.plt.change_duration(self.duration / 4)
-        elif event.key() == Qt.Key_PageDown:
-            if event.modifiers() == Qt.ControlModifier:
+        elif event.key() == QtCore.Qt.Key_PageDown:
+            if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.change_nchan(-1)
             else:
                 self.plt.change_nchan(int(-self.nchan / 4))
-        elif event.key() == Qt.Key_PageUp:
-            if event.modifiers() == Qt.ControlModifier:
+        elif event.key() == QtCore.Qt.Key_PageUp:
+            if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.change_nchan(1)
             else:
                 self.plt.change_nchan(int(self.nchan / 4))
-        elif event.key() == Qt.Key_A:
+        elif event.key() == QtCore.Qt.Key_A:
             self.annotation_mode = not self.annotation_mode
             self.toggle_annot_mode()
-        elif event.key() == Qt.Key_T:
+        elif event.key() == QtCore.Qt.Key_T:
             self.clock_ticks = not self.clock_ticks
             self.plt.axis_items['bottom'].refresh()

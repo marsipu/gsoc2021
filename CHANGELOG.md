@@ -1,6 +1,7 @@
 # Week 5
 ## Thursday, 2021-07-08
 - Fixed bugs in scrolling-behaviour
+- added more downsampling from pyqtgraph
 
 ## Wednesday, 2021-07-07
 - making dragging of Vline-label work too
