@@ -1,4 +1,7 @@
 # Week 5
+## Friday, 2021-07-09
+- finish annotation-managemet
+
 ## Thursday, 2021-07-08
 - Fixed bugs in scrolling-behaviour
 - added more downsampling from pyqtgraph
