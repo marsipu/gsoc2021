@@ -28,9 +28,10 @@
 
 
 ## Performance
+- [ ] Downsampling-test (with artificial peak-file, no omission of peaks)
+- [ ] compare Annotations persistent in scene or with Range-Update
 - [ ] Profiling/Optimizing current code (range-update, LineItem-Initialization)
 - [X] Downsampling as in hdf5-example
-- [ ] Downsampling-test (with artificial peak-file, no omission of peaks)
 
 
 ## User Interaction
@@ -39,8 +40,8 @@
 
 ## Advanced Features
 - [ ] change distance between channels dynamically (up to zero==butterfly)
+- [ ] custom colors for annotations (like in event-colors)
 - [X] OpenGL (optional, but not on Windws)
 - [ ] Tooltip/Crosshair at cursor which shows time/value under cursor-tip (prerequisite: handle different channel-scales)
-
-## Outlook
 - [ ] OverviewBar (GFP, zscore, etc.)
+- [ ] Dark Mode

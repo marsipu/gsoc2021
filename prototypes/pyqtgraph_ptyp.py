@@ -1,15 +1,18 @@
 import datetime
+import math
 import platform
 from collections import OrderedDict
 from functools import partial
+from itertools import cycle
 from math import floor
 
 import numpy as np
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog, QDockWidget,
                              QDoubleSpinBox, QFormLayout, QGraphicsItem, QGridLayout,
                              QHBoxLayout, QInputDialog, QLabel, QMainWindow,
                              QMessageBox, QPushButton, QScrollBar, QSizePolicy, QWidget)
+from mne.viz.utils import _get_color_list
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine, LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
                        mkBrush, mkPen)
@@ -100,7 +103,6 @@ class RawCurveItem(PlotCurveItem):
                     if width != 0.0:
                         # Auto-Downsampling with 3 samples per pixel
                         ds = int(max(1, (x1 - x0) / (width * 3)))
-                        print(f'Auto-Downsampling: {ds}')
         else:
             ds = self.ds
 
@@ -204,7 +206,7 @@ class ChannelAxis(AxisItem):
         # Clean up channel-texts
         self.ch_texts = {k: v for k, v in self.ch_texts.items()
                          if k in [li.ch_name for li in self.main.plt.lines]}
-        # Get channel-name from position of channel-label
+        # Get channel-name from position of channel-description
         ypos = event.scenePos().y()
         ch_name = [chn for chn in self.ch_texts
                    if self.ch_texts[chn][0] < ypos < self.ch_texts[chn][1]]
@@ -289,20 +291,27 @@ class RawViewBox(ViewBox):
 
         if event.button() == QtCore.Qt.LeftButton:
             if self.main.annotation_mode:
-                if event.isStart():
-                    self._drag_start = self.mapSceneToView(event.scenePos()).x()
-                    self._drag_region = AnnotationRegion(description=self.main.annot_label,
-                                                         values=(self._drag_start, self._drag_start))
-                    self.main.plt.addItem(self._drag_region)
+                if self.main.annot_ctrl.current_description:
+                    description = self.main.annot_ctrl.current_description
+                    if event.isStart():
+                        self._drag_start = self.mapSceneToView(event.scenePos()).x()
+                        self._drag_region = AnnotationRegion(description=description,
+                                                             values=(self._drag_start, self._drag_start),
+                                                             color=self.main.annot_ctrl.get_color(description),
+                                                             time_decimals=self.main.annot_ctrl.time_decimals)
+                        self.main.plt.addItem(self._drag_region)
+                        self.main.plt.addItem(self._drag_region.label_item)
+                    elif event.isFinish():
+                        drag_stop = self.mapSceneToView(event.scenePos()).x()
+                        self._drag_region.setRegion((self._drag_start, drag_stop))
+                        onset = min(self._drag_start, drag_stop)
+                        duration = abs(self._drag_start - drag_stop)
+                        self.main.annot_ctrl.add_annotation(onset, duration, self._drag_region)
+                    else:
+                        self._drag_region.setRegion((self._drag_start,
+                                                     self.mapSceneToView(event.scenePos()).x()))
                 elif event.isFinish():
-                    drag_stop = self.mapSceneToView(event.scenePos()).x()
-                    self._drag_region.setRegion((self._drag_start, drag_stop))
-                    onset = min(self._drag_start, drag_stop)
-                    duration = abs(self._drag_start - drag_stop)
-                    self.main.annot_ctrl.add_annotation(onset, duration, self._drag_region)
-                else:
-                    self._drag_region.setRegion((self._drag_start,
-                                                 self.mapSceneToView(event.scenePos()).x()))
+                    QMessageBox.warning(self.main, 'No description!', 'No description is given, add one!')
             # else:
             #     super().mouseDragEvent(event, axis)
 
@@ -371,40 +380,85 @@ class HelpDialog(QDialog):
 
 
 class AnnotationRegion(LinearRegionItem):
+    regionChangeFinished = QtCore.Signal(object)
     gotSelected = QtCore.Signal(object)
     removeRequested = QtCore.Signal(object)
 
-    def __init__(self, description, values):
+    def __init__(self, description, values, color, time_decimals):
+
         super().__init__(values=values, orientation='vertical', movable=True, swapMode='sort')
+
+        self.sigRegionChangeFinished.connect(self._region_changed)
+
+        self.description = description
+        self.time_decimals = time_decimals
         self.old_onset = values[0]
         self.selected = False
         self.setToolTip(description)
 
+        self.label_item = TextItem(text=description, anchor=(0.5, 0.5))
+        self.label_item.setFont(QFont('AnyStyle', 10, QFont.Bold))
+        self.sigRegionChanged.connect(self.change_label_pos)
+
+        self.update_color(color)
+
+    def _region_changed(self):
+        self.regionChangeFinished.emit(self)
+        self.old_onset = self.getRegion()[0]
+
+    def getRegion(self):
+        rgn = tuple([round(r, self.time_decimals) for r in super().getRegion()])
+        return rgn
+
+    def update_color(self, color):
+        color = QColor(color)
+        hover_color = QColor(color)
+        text_color = QColor(color)
+        color.setAlpha(75)
+        hover_color.setAlpha(150)
+        text_color.setAlpha(255)
+        self.setBrush(color)
+        self.setHoverBrush(hover_color)
+        self.label_item.setColor(text_color)
+        self.update()
+
+    def update_text(self, text):
+        self.label_item.setText(text)
+        self.label_item.update()
+
     def paint(self, p, *args):
         super().paint(p, *args)
+
         if self.selected:
+            # Draw selection rectangle
             p.setBrush(mkBrush(None))
-            p.setPen(mkPen(color='g', width=3))
+            p.setPen(mkPen(color='c', width=3))
             p.drawRect(self.boundingRect())
+
+    def remove(self):
+        self.removeRequested.emit(self)
+        vb = self.getViewBox()
+        if vb and self.label_item in vb.addedItems:
+            vb.removeItem(self.label_item)
+
+    def select(self):
+        self.gotSelected.emit(self)
+        self.selected = True
+        self.update()
 
     def mouseClickEvent(self, event):
         event.accept()
         if event.button() == QtCore.Qt.LeftButton and self.movable:
-            self.gotSelected.emit(self)
-            self.selected = True
-            self.update()
+            self.select()
         elif event.button() == QtCore.Qt.RightButton and self.movable:
-            self.removeRequested.emit(self)
+            self.remove()
 
-    def mouseDragEvent(self, event):
-        event.accept()
-        super().mouseDragEvent(event)
-        if event.isFinish():
-            self.old_onset = self.getRegion()[0]
-
-    def lineMoveFinished(self):
-        super().lineMoveFinished()
-        self.old_onset = self.getRegion()[0]
+    def change_label_pos(self):
+        rgn = self.getRegion()
+        vb = self.getViewBox()
+        if vb:
+            ymax = vb.viewRange()[1][1]
+            self.label_item.setPos(sum(rgn) / 2, ymax - 0.25)
 
 
 class AnnotationController:
@@ -413,41 +467,73 @@ class AnnotationController:
     def __init__(self, main):
         self.main = main
         self.first_time = main.raw.first_time
+        self.time_decimals = int(np.ceil(-np.log10(1 / self.main.raw.info['sfreq'])))
         self.annotations = main.raw.annotations
-        self.annotation_colors = dict()
-        self.current_label = None
+        colors, self.red = _get_color_list(annotations=True)
+        self.color_cycle = cycle(colors)
+        self.annot_color_mapping = dict()
+        self.current_description = None
         self.selected_region = None
-        self.regions = dict()
-        self.in_plot = dict()
+        self.regions = list()
 
         for annot in self.annotations:
-            onset = annot['onset'] - self.first_time
-            duration = annot['duration']
+            onset = round(annot['onset'] - self.first_time, self.time_decimals)
+            duration = round(annot['duration'], self.time_decimals)
             description = annot['description']
             self.add_region(onset, duration, description)
 
+    def get_color(self, description):
+        # As in matplotlib-backend
+        if description in self.annot_color_mapping:
+            return self.annot_color_mapping[description]
+        else:
+            if any([b in description for b in ['bad', 'BAD', 'Bad']]):
+                color = self.red
+            else:
+                color = next(self.color_cycle)
+            self.annot_color_mapping[description] = color
+            return color
+
+    def update_colors(self):
+        update_regions = [r for r in self.regions
+                          if r.description == self.current_description]
+        for u_region in update_regions:
+            u_region.update_color(self.get_color(self.current_description))
+
     def add_region(self, onset, duration, description, region=None):
+        color = self.get_color(description)
         if not region:
             region = AnnotationRegion(description=description,
-                                      values=(onset, onset + duration))
-        region.sigRegionChangeFinished.connect(self.region_changed)
+                                      values=(onset, onset + duration),
+                                      color=color,
+                                      time_decimals=self.time_decimals)
+        region.regionChangeFinished.connect(self.region_changed)
         region.gotSelected.connect(self.region_selected)
         region.removeRequested.connect(self.remove_region)
-        self.regions[onset] = region
+        self.main.plt.getViewBox().sigYRangeChanged.connect(region.change_label_pos)
+        self.regions.append(region)
+
+        xrange = self.main.plt.getViewBox().viewRange()[0]
+        if xrange[0] < onset < xrange[1] \
+                and region not in self.main.plt.items:
+            self.main.plt.addItem(region)
+            # Found no better way yet to initialize the region-labels
+            self.main.plt.addItem(region.label_item)
+            region.change_label_pos()
 
     def remove_region(self, region):
-        onset = region.getRegion()[0]
         # Remove from shown regions
-        if onset in self.in_plot:
-            self.main.plt.removeItem(self.in_plot[onset])
-            self.in_plot.pop(onset)
+        if region.label_item in self.main.plt.getViewBox().addedItems:
+            self.main.plt.getViewBox().removeItem(region.label_item)
+        if region in self.main.plt.items:
+            self.main.plt.removeItem(region)
 
         # Remove from all regions
-        if onset in self.regions:
-            self.regions.pop(onset)
+        if region in self.regions:
+            self.regions.remove(region)
 
         # Remove from annotations
-        idx = np.where(self.annotations.onset == onset + self.first_time)
+        idx = self._get_onset_idx(region.getRegion()[0])
         self.annotations.delete(idx)
 
     def region_selected(self, region):
@@ -457,44 +543,55 @@ class AnnotationController:
             old_region.selected = False
             old_region.update()
         self.selected_region = region
+        self.current_description = region.description
+        self.main.annot_dock.update_values(region)
+
+    def _get_onset_idx(self, onset):
+        idx = np.where(np.around(self.annotations.onset - self.first_time,
+                                 self.time_decimals) == onset)
+        return idx
 
     def region_changed(self, region):
-        idx = np.where(self.annotations.onset == region.old_onset + self.first_time)
         rgn = region.getRegion()
+        region.select()
+        idx = self._get_onset_idx(region.old_onset)
 
-        # Change entries in region-dictionaries
-        self.regions[rgn[0]] = self.regions.pop(region.old_onset)
-        self.in_plot[rgn[0]] = self.in_plot.pop(region.old_onset)
+        # Update Spinboxes of Annot-Dock
+        self.main.annot_dock.update_values(region)
 
         # Change annotations
-        self.annotations.onset[idx] = rgn[0] + self.first_time
+        self.annotations.onset[idx] = round(rgn[0] + self.first_time, self.time_decimals)
         self.annotations.duration[idx] = rgn[1] - rgn[0]
 
     def update_range(self, xmin, xmax):
         inside_onsets = self.annotations.onset[np.where((self.annotations.onset + self.annotations.duration
                                                          >= xmin + self.first_time) &
                                                         (self.annotations.onset < xmax + self.first_time))[0]]
-        rm_onsets = [o for o in self.in_plot if o + self.first_time not in inside_onsets]
-        for rm_onset in rm_onsets:
-            self.main.plt.removeItem(self.in_plot[rm_onset])
-            self.in_plot.pop(rm_onset)
+        inside_onsets = [round(io - self.first_time, self.time_decimals) for io in inside_onsets]
+        rm_regions = [r for r in self.regions
+                      if r.getRegion()[0] not in inside_onsets
+                      and r in self.main.plt.items]
+        for rm_region in rm_regions:
+            self.main.plt.removeItem(rm_region)
+            self.main.plt.removeItem(rm_region.label_item)
 
-        add_onsets = [o for o in self.regions if o + self.first_time in inside_onsets and o not in self.in_plot
-                      and self.regions[o] not in self.main.plt.items]
-        for add_onset in add_onsets:
-            region = self.regions[add_onset]
-            self.main.plt.addItem(region)
-            self.in_plot[add_onset] = region
+        add_regions = [r for r in self.regions
+                       if r.getRegion()[0] in inside_onsets
+                       and r not in self.main.plt.items]
+        for add_region in add_regions:
+            self.main.plt.addItem(add_region)
+            self.main.plt.addItem(add_region.label_item)
+            add_region.change_label_pos()
 
     def add_annotation(self, onset, duration, region=None):
         """Add annotation to Annotations (onset is here the onset
         in the plot which is then adjusted with first_time)"""
-        self.annotations.append(onset + self.first_time, duration, self.current_label)
-        self.add_region(onset, duration, self.current_label, region)
+        self.annotations.append(onset + self.first_time, duration, self.current_description)
+        self.add_region(onset, duration, self.current_description, region)
         self.update_range(*self.main.plt.viewRange()[0])
 
     def change_mode(self, annotation_on):
-        for region in self.regions.values():
+        for region in self.regions:
             region.setMovable(annotation_on)
 
 
@@ -507,75 +604,136 @@ class AnnotationDock(QDockWidget):
     def init_ui(self):
         widget = QWidget()
         layout = QHBoxLayout()
+        layout.setAlignment(QtCore.Qt.AlignLeft)
 
-        self.label_cmbx = QComboBox()
-        self.label_cmbx.currentTextChanged.connect(self.label_changed)
-        self.label_cmbx.addItems(set(self.main.raw.annotations.description))
-        layout.addWidget(self.label_cmbx)
+        self.description_cmbx = QComboBox()
+        self.description_cmbx.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.description_cmbx.activated.connect(self.description_changed)
+        self.update_description_cmbx()
+        layout.addWidget(self.description_cmbx)
 
-        add_bt = QPushButton('Add Label')
-        add_bt.clicked.connect(self.add_label)
+        add_bt = QPushButton('Add Description')
+        add_bt.clicked.connect(self.add_description)
         layout.addWidget(add_bt)
-
-        rm_bt = QPushButton('Remove Label')
-        rm_bt.clicked.connect(self.remove_label)
+        
+        edit_bt = QPushButton('Edit Description')
+        edit_bt.clicked.connect(self.edit_description)
+        layout.addWidget(edit_bt)
+        
+        rm_bt = QPushButton('Remove Description')
+        rm_bt.clicked.connect(self.remove_description)
         layout.addWidget(rm_bt)
 
         color_bt = QPushButton('Change Color')
-        color_bt.clicked.connect(self.get_color)
+        color_bt.clicked.connect(self.set_color)
         layout.addWidget(color_bt)
 
-        self.onset_bx = QDoubleSpinBox()
-        self.onset_bx.valueChanged.connect(self.onset_changed)
-        layout.addWidget(self.onset_bx)
+        layout.addWidget(QLabel('Start:'))
+        self.start_bx = QDoubleSpinBox()
+        self.start_bx.setDecimals(self.main.annot_ctrl.time_decimals)
+        self.start_bx.editingFinished.connect(self.start_changed)
+        layout.addWidget(self.start_bx)
 
-        self.duration_bx = QDoubleSpinBox()
-        self.duration_bx.valueChanged.connect(self.duration_changed)
-        layout.addWidget(self.duration_bx)
+        layout.addWidget(QLabel('Stop:'))
+        self.stop_bx = QDoubleSpinBox()
+        self.stop_bx.setDecimals(self.main.annot_ctrl.time_decimals)
+        self.stop_bx.editingFinished.connect(self.stop_changed)
+        layout.addWidget(self.stop_bx)
 
         widget.setLayout(layout)
         self.setWidget(widget)
 
-    def add_label(self):
-        new_label = QInputDialog.getText(self, 'Set the name for the new label', 'New label: ')
-        if new_label != '':
-            self.label_cmbx.addItem(new_label)
-            self.label_cmbx.setCurrentText(new_label)
+    def _add_description_to_cmbx(self, description):
+        color_pixmap = QPixmap(25, 25)
+        color = QColor(self.main.annot_ctrl.get_color(description))
+        color.setAlpha(75)
+        color_pixmap.fill(color)
+        color_icon = QIcon(color_pixmap)
+        self.description_cmbx.addItem(color_icon, description)
+        self.description_cmbx.setCurrentText(description)
 
-    def remove_label(self):
-        rm_label = self.label_cmbx.currentText()
-        existing_annot = list(self.main.raw.annotations.description).count(rm_label)
+    def add_description(self):
+        new_description, ok = QInputDialog.getText(self, 'Set the name for the new description!', 'New description: ')
+        if ok and new_description:
+            self._add_description_to_cmbx(new_description)
+
+    def edit_description(self):
+        current_description = self.main.annot_ctrl.current_description
+        changed_description, ok = QInputDialog.getText(self, 'Set then name for the changed description!',
+                                                 f'Change "{current_description}" to:')
+        if ok and changed_description:
+            edit_regions = [r for r in self.main.annot_ctrl.regions
+                            if r.description == current_description]
+            for ed_region in edit_regions:
+                idx = self.main.annot_ctrl._get_onset_idx(ed_region.getRegion()[0])
+                self.main.annot_ctrl.annotations.description[idx] = changed_description
+                ed_region.update_text(changed_description)
+            self.update_description_cmbx()
+
+    def remove_description(self):
+        rm_description = self.description_cmbx.currentText()
+        existing_annot = list(self.main.raw.annotations.description).count(rm_description)
         if existing_annot > 0:
-            answer = QMessageBox.question(self, f'Remove annotations with {rm_label}?',
-                                          f'There exist {existing_annot} annotations with {rm_label}.\n'
+            answer = QMessageBox.question(self, f'Remove annotations with {rm_description}?',
+                                          f'There exist {existing_annot} annotations with "{rm_description}".\n'
                                           f'Do you really want to remove them?')
             if answer == QMessageBox.Yes:
-                rm_idxs = np.where(self.main.raw.annotations.description == rm_label)
+                rm_idxs = np.where(self.main.raw.annotations.description == rm_description)
                 for idx in rm_idxs:
                     self.main.raw.annotations.delete(idx)
+                for rm_region in [r for r in self.main.annot_ctrl.regions
+                                  if r.description == rm_description]:
+                    rm_region.remove()
+                self.update_description_cmbx()
 
-    def label_changed(self, label):
-        self.main.annot_ctrl.current_label = label
+    def description_changed(self, descr_idx):
+        new_descr = self.description_cmbx.itemText(descr_idx)
+        self.main.annot_ctrl.current_description = new_descr
 
-    def onset_changed(self, val):
+    def start_changed(self):
+        start = self.start_bx.value()
         sel_region = self.main.annot_ctrl.selected_region
         if sel_region:
-            sel_region.setRange((val, sel_region.getRegion()[1]))
+            stop = sel_region.getRegion()[1]
+            if start < stop:
+                sel_region.setRegion((start, stop))
+            else:
+                QMessageBox.warning(self, 'Invalid value!',
+                                    'Start can\'t be bigger or equal to Stop!')
+                self.start_bx.setValue(sel_region.getRegion()[0])
 
-    def duration_changed(self, val):
+    def stop_changed(self):
+        stop = self.stop_bx.value()
         sel_region = self.main.annot_ctrl.selected_region
         if sel_region:
-            onset = sel_region.getRegion()[0]
-            sel_region.setRange(onset, onset + val)
-        current_idx = self.label_cmbx.currentIndex()
-        self.main.raw.annotations.duration[current_idx] = val
+            start = sel_region.getRegion()[0]
+            if start < stop:
+                sel_region.setRegion((start, stop))
+            else:
+                QMessageBox.warning(self, 'Invalid value!',
+                                    'Stop can\'t be smaller or equal to Start!')
+                self.stop_bx.setValue(sel_region.getRegion()[1])
 
-    def get_color(self):
-        current_label = self.label_cmbx.currentText()
-        color = QColorDialog.getColor(QColor('red'), self,
-                                      f'Choose color for {current_label}')
+    def set_color(self):
+        current_description = self.main.annot_ctrl.current_description
+        current_color = self.main.annot_ctrl.annot_color_mapping[current_description]
+        color = QColorDialog.getColor(QColor(current_color), self,
+                                      f'Choose color for {current_description}!')
         if color.isValid():
-            self.main.annot_ctrl.annot_colors[current_label] = color
+            self.main.annot_ctrl.annot_color_mapping[current_description] = color
+            self.update_description_cmbx()
+            self.main.annot_ctrl.update_colors()
+
+    def update_values(self, region):
+        rgn = region.getRegion()
+        self.description_cmbx.setCurrentText(region.description)
+        self.start_bx.setValue(rgn[0])
+        self.stop_bx.setValue(rgn[1])
+
+    def update_description_cmbx(self):
+        self.description_cmbx.clear()
+        for description in set(self.main.raw.annotations.description):
+            self._add_description_to_cmbx(description)
 
 
 class RawPlot(PlotItem):
@@ -817,7 +975,7 @@ class PyQtGraphPtyp(QMainWindow):
         self.raw = raw
         self.data = data
         # Invert data for display from the top (invertedY)
-        self.data *= -1
+        self.data = data * -1
         self.times = times
         self.annotation_mode = False
 
