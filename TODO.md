@@ -16,7 +16,7 @@
 - [X] Vertical Scrollbar
 - [ ] changing scaling
 - [ ] channel-type colors
-- [ ] Annotation-Management
+- [X] Annotation-Management
 - [ ] Event Lines
 - [ ] Overview-Bar
 - [ ] adaption to Epochs
