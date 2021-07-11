@@ -656,9 +656,10 @@ class AnnotationDock(QDockWidget):
         new_description, ok = QInputDialog.getText(self, 'Set the name for the new description!', 'New description: ')
         if ok and new_description:
             self._add_description_to_cmbx(new_description)
+        self.main.annot_ctrl.current_description = self.description_cmbx.currentText()
 
     def edit_description(self):
-        current_description = self.main.annot_ctrl.current_description
+        current_description = self.description_cmbx.currentText()
         changed_description, ok = QInputDialog.getText(self, 'Set then name for the changed description!',
                                                  f'Change "{current_description}" to:')
         if ok and changed_description:
@@ -684,7 +685,19 @@ class AnnotationDock(QDockWidget):
                 for rm_region in [r for r in self.main.annot_ctrl.regions
                                   if r.description == rm_description]:
                     rm_region.remove()
-                self.update_description_cmbx()
+
+        # Remove from color-mapping
+        if rm_description in self.main.annot_ctrl.annot_color_mapping:
+            self.main.annot_ctrl.annot_color_mapping.pop(rm_description)
+
+        # Remove from Combo-Box
+        cmbx_rm_idx = [self.description_cmbx.itemText(i)
+                       for i in range(self.description_cmbx.count())].index(rm_description)
+        self.description_cmbx.removeItem(cmbx_rm_idx)
+
+        # Set first description in Combo-Box to current description
+        self.description_cmbx.setCurrentIndex(0)
+        self.main.annot_ctrl.current_description = self.description_cmbx.currentText()
 
     def description_changed(self, descr_idx):
         new_descr = self.description_cmbx.itemText(descr_idx)
@@ -715,8 +728,11 @@ class AnnotationDock(QDockWidget):
                 self.stop_bx.setValue(sel_region.getRegion()[1])
 
     def set_color(self):
-        current_description = self.main.annot_ctrl.current_description
-        current_color = self.main.annot_ctrl.annot_color_mapping[current_description]
+        current_description = self.description_cmbx.currentText()
+        if current_description in self.main.annot_ctrl.annot_color_mapping:
+            current_color = self.main.annot_ctrl.annot_color_mapping[current_description]
+        else:
+            current_color = None
         color = QColorDialog.getColor(QColor(current_color), self,
                                       f'Choose color for {current_description}!')
         if color.isValid():
@@ -731,8 +747,13 @@ class AnnotationDock(QDockWidget):
         self.stop_bx.setValue(rgn[1])
 
     def update_description_cmbx(self):
+        # Get descriptions from combo-box to avoid removal of descriptions without annotations
+        all_items = [self.description_cmbx.itemText(i) for i in range(self.description_cmbx.count())]
+        # Add descriptions from raw.annotations when no items in Combo-Box
+        if len(all_items) == 0:
+            all_items = set(self.main.raw.annotations.description)
         self.description_cmbx.clear()
-        for description in set(self.main.raw.annotations.description):
+        for description in all_items:
             self._add_description_to_cmbx(description)
 
 
@@ -1010,15 +1031,16 @@ class PyQtGraphPtyp(QMainWindow):
         layout.addWidget(self.channel_bar, 0, 1)
         self.centralWidget().setLayout(layout)
 
-        # Initialize annotation-controller
-        self.annot_ctrl = AnnotationController(self)
-        self.annot_ctrl.update_range(0, self.duration)
-        self.annot_ctrl.change_mode(self.annotation_mode)
+        if self.show_annotations:
+            # Initialize annotation-controller
+            self.annot_ctrl = AnnotationController(self)
+            self.annot_ctrl.update_range(0, self.duration)
+            self.annot_ctrl.change_mode(self.annotation_mode)
 
-        # Initialize Annotation-Dock
-        self.annot_dock = AnnotationDock(self)
-        self.addDockWidget(QtCore.Qt.TopDockWidgetArea, self.annot_dock)
-        self.annot_dock.setVisible(False)
+            # Initialize Annotation-Dock
+            self.annot_dock = AnnotationDock(self)
+            self.addDockWidget(QtCore.Qt.TopDockWidgetArea, self.annot_dock)
+            self.annot_dock.setVisible(False)
 
         # Initialize Toolbar
         self.toolbar = self.addToolBar('Tools')
@@ -1083,9 +1105,10 @@ class PyQtGraphPtyp(QMainWindow):
         self.channel_bar.update_nchan()
 
     def toggle_annot_mode(self):
-        self.annot_dock.setVisible(self.annotation_mode)
-        self.annot_ctrl.change_mode(self.annotation_mode)
-        self.plt.toggle_annot_hint(self.annotation_mode)
+        if self.show_annotations:
+            self.annot_dock.setVisible(self.annotation_mode)
+            self.annot_ctrl.change_mode(self.annotation_mode)
+            self.plt.toggle_annot_hint(self.annotation_mode)
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Left:
