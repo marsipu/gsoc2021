@@ -86,29 +86,9 @@ class RawCurveItem(PlotCurveItem):
         visible_x = self.times[start:stop]
         visible_y = self.data[start:stop]
 
-        # Auto-Downsampling from pyqtgraph
-        if self.ds == 'auto':
-            ds = 1
-            view = self.getViewBox()
-            if view is not None:
-                view_range = view.viewRect()
-            else:
-                view_range = None
-            if view_range is not None and len(self.times) > 1:
-                dx = float(self.times[-1] - self.times[0]) / (len(self.times) - 1)
-                if dx != 0.0:
-                    x0 = view_range.left() / dx
-                    x1 = view_range.right() / dx
-                    width = self.getViewBox().width()
-                    if width != 0.0:
-                        # Auto-Downsampling with 3 samples per pixel
-                        ds = int(max(1, (x1 - x0) / (width * 3)))
-        else:
-            ds = self.ds
-
-        if ds not in [1, None]:
+        if self.ds not in [1, None]:
             if self.ds_chunk_size:
-                chunkSize = (self.ds_chunk_size // ds) * ds
+                chunkSize = (self.ds_chunk_size // self.ds) * self.ds
                 sourcePtr = 0
                 x = np.empty(0, dtype=self.times.dtype)
                 y = np.empty(0, dtype=self.data.dtype)
@@ -118,13 +98,13 @@ class RawCurveItem(PlotCurveItem):
                     ychunk = visible_y[sourcePtr:min(stop, sourcePtr + chunkSize)]
                     sourcePtr += len(xchunk)
 
-                    xchunk, ychunk = self.apply_ds(xchunk, ychunk, ds)
+                    xchunk, ychunk = self.apply_ds(xchunk, ychunk, self.ds)
 
                     x = np.append(x, xchunk)
                     y = np.append(y, ychunk)
 
             else:
-                x, y = self.apply_ds(visible_x, visible_y, ds)
+                x, y = self.apply_ds(visible_x, visible_y, self.ds)
 
         else:
             x = visible_x
@@ -796,8 +776,9 @@ class RawPlot(PlotItem):
 
     def add_line(self, ch_idx, ch_data, ch_name):
         ypos = ch_idx + 1
+        ds = self._get_downsampling()
         item = RawCurveItem(data=ch_data, times=self.main.times, ch_name=ch_name, ypos=ypos,
-                            sfreq=self.main.raw.info['sfreq'], ds=self.main.ds,
+                            sfreq=self.main.raw.info['sfreq'], ds=ds,
                             ds_method=self.main.ds_method, ds_chunk_size=self.main.ds_chunk_size,
                             isbad=ch_name in self.main.raw.info['bads'])
         # Add Item early to have access to viewBox
@@ -834,8 +815,32 @@ class RawPlot(PlotItem):
     def bad_changed(self, line, ev):
         self.addrm_bad_channel(line, add=line.isbad)
 
+    def _get_downsampling(self):
+        # Auto-Downsampling from pyqtgraph
+        ds = self.main.ds if isinstance(self.main.ds, int) else 1
+        if self.main.ds == 'auto':
+            view = self.getViewBox()
+            if view is not None:
+                view_range = view.viewRect()
+            else:
+                view_range = None
+            if view_range is not None and len(self.main.times) > 1:
+                dx = float(self.main.times[-1] - self.main.times[0]) / (len(self.main.times) - 1)
+                if dx != 0.0:
+                    x0 = view_range.left() / dx
+                    x1 = view_range.right() / dx
+                    width = self.getViewBox().width()
+                    if width != 0.0:
+                        # Auto-Downsampling with 3 samples per pixel
+                        ds = int(max(1, (x1 - x0) / (width * 5)))
+
+        return ds
+
     def xrange_changed(self, _, xrange):
+        ds = self._get_downsampling()
+
         for line in self.lines:
+            line.ds = ds
             line.xrange_changed(xrange)
 
         if self.main.show_annotations:
@@ -953,7 +958,7 @@ class RawPlot(PlotItem):
 
 class PyQtGraphPtyp(QMainWindow):
     def __init__(self, raw, data, times, duration=20,
-                 nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
+                 nchan=30, ds='auto', ds_method='mean', ds_chunk_size=None,
                  enable_cache=False, antialiasing=False, use_opengl=False,
                  show_annotations=True):
         """
