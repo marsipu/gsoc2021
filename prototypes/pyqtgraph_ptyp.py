@@ -651,9 +651,11 @@ class AnnotationDock(QDockWidget):
                 idx = self.main.annot_ctrl._get_onset_idx(ed_region.getRegion()[0])
                 self.main.annot_ctrl.annotations.description[idx] = changed_description
                 ed_region.update_description(changed_description)
-            self.main.annot_ctrl.descriptions = [changed_description if i == current_description
-                                                 else i for i in self.main.annot_ctrl.descriptions]
+            self.main.annot_ctrl.descriptions = list(set([changed_description if i == current_description
+                                                 else i for i in self.main.annot_ctrl.descriptions]))
             self.main.annot_ctrl.current_description = changed_description
+            self.main.annot_ctrl.annot_color_mapping[changed_description] = \
+                self.main.annot_ctrl.annot_color_mapping.pop(current_description)
             self.update_description_cmbx()
             self.main.annot_ctrl.update_colors()
 

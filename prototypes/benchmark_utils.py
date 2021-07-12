@@ -4,6 +4,7 @@ import os
 from ast import literal_eval
 from copy import deepcopy
 from functools import partial
+from itertools import cycle
 from os.path import isfile, join
 
 import mne
@@ -12,7 +13,7 @@ from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
                              QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
                              QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
-from mne.viz.utils import _compute_scalings
+from mne.viz.utils import _compute_scalings, _get_color_list
 from pyqtgraph import PlotDataItem, PlotWidget, colormap, mkPen, time
 
 from prototypes.pyqtgraph_ptyp import HelpDialog, PyQtGraphPtyp
@@ -185,6 +186,8 @@ class ResultDialog(QDialog):
     def __init__(self, parent_widget):
         super().__init__(parent_widget)
         self.pw = parent_widget
+        colors, self.red = _get_color_list(annotations=True)
+        self.color_cycle = cycle(colors)
 
         self.init_ui()
 
@@ -199,32 +202,25 @@ class ResultDialog(QDialog):
     def init_ui(self):
         layout = QHBoxLayout()
 
-        # Color-Map
-        cm = colormap.get('CET-C6')
-
         self.plot_widget = PlotWidget()
-        for idx, key in enumerate(self.pw.benchmark_results):
-            y = self.pw.benchmark_results[key]
-            col_idx = int((len(cm.color) / len(self.pw.benchmark_results)) * idx)
-            color = cm.getByIndex(col_idx)
-            data_item = PlotDataItem(y, pen=mkPen(color=color.name()))
-            self.plot_widget.addItem(data_item)
-        layout.addWidget(self.plot_widget)
-
         scroll_area = QScrollArea()
         scroll_area.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
         legend_widget = QWidget()
         legend_layout = QVBoxLayout()
         for idx, bm_run in enumerate(self.pw.benchmark_results):
+            y = self.pw.benchmark_results[bm_run]
+            color = next(self.color_cycle)
+            data_item = PlotDataItem(y, pen=mkPen(color=color))
+            self.plot_widget.addItem(data_item)
+
             bm_func = bm_run.split(' ')[0]
             p_dict = self.pw.benchmark_runs[bm_func][bm_run]
-            col_idx = int((len(cm.color) / len(self.pw.benchmark_results)) * idx)
-            color = cm.getByIndex(col_idx)
             legend_string = f'<b>{idx + 1}: {bm_run}</b><br>'
             legend_string += '<br>'.join([f'{p} = {p_dict[p]}' for p in p_dict])
             legend_label = QLabel(legend_string)
-            legend_label.setStyleSheet(f"QLabel {{ color : {color.name()}}}")
+            legend_label.setStyleSheet(f"QLabel {{ color : {color}}}")
             legend_layout.addWidget(legend_label)
+        layout.addWidget(self.plot_widget)
         legend_widget.setLayout(legend_layout)
         scroll_area.setWidget(legend_widget)
         layout.addWidget(scroll_area)
