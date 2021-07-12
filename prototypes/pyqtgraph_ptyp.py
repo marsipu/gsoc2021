@@ -402,8 +402,9 @@ class AnnotationRegion(LinearRegionItem):
         self.label_item.setColor(text_color)
         self.update()
 
-    def update_text(self, text):
-        self.label_item.setText(text)
+    def update_description(self, description):
+        self.description = description
+        self.label_item.setText(description)
         self.label_item.update()
 
     def paint(self, p, *args):
@@ -451,8 +452,9 @@ class AnnotationController:
         self.annotations = main.raw.annotations
         colors, self.red = _get_color_list(annotations=True)
         self.color_cycle = cycle(colors)
+        self.descriptions = list(set(main.raw.annotations.description))
+        self.current_description = self.descriptions[0]
         self.annot_color_mapping = dict()
-        self.current_description = None
         self.selected_region = None
         self.regions = list()
 
@@ -464,15 +466,14 @@ class AnnotationController:
 
     def get_color(self, description):
         # As in matplotlib-backend
-        if description in self.annot_color_mapping:
-            return self.annot_color_mapping[description]
+        if any([b in description for b in ['bad', 'BAD', 'Bad']]):
+            color = self.red
+        elif description in self.annot_color_mapping:
+            color = self.annot_color_mapping[description]
         else:
-            if any([b in description for b in ['bad', 'BAD', 'Bad']]):
-                color = self.red
-            else:
-                color = next(self.color_cycle)
-            self.annot_color_mapping[description] = color
-            return color
+            color = next(self.color_cycle)
+        self.annot_color_mapping[description] = color
+        return color
 
     def update_colors(self):
         update_regions = [r for r in self.regions
@@ -595,11 +596,11 @@ class AnnotationDock(QDockWidget):
         add_bt = QPushButton('Add Description')
         add_bt.clicked.connect(self.add_description)
         layout.addWidget(add_bt)
-        
+
         edit_bt = QPushButton('Edit Description')
         edit_bt.clicked.connect(self.edit_description)
         layout.addWidget(edit_bt)
-        
+
         rm_bt = QPushButton('Remove Description')
         rm_bt.clicked.connect(self.remove_description)
         layout.addWidget(rm_bt)
@@ -634,22 +635,27 @@ class AnnotationDock(QDockWidget):
 
     def add_description(self):
         new_description, ok = QInputDialog.getText(self, 'Set the name for the new description!', 'New description: ')
-        if ok and new_description:
+        if ok and new_description and new_description not in self.main.annot_ctrl.descriptions:
+            self.main.annot_ctrl.descriptions.append(new_description)
             self._add_description_to_cmbx(new_description)
         self.main.annot_ctrl.current_description = self.description_cmbx.currentText()
 
     def edit_description(self):
         current_description = self.description_cmbx.currentText()
         changed_description, ok = QInputDialog.getText(self, 'Set then name for the changed description!',
-                                                 f'Change "{current_description}" to:')
+                                                       f'Change "{current_description}" to:')
         if ok and changed_description:
             edit_regions = [r for r in self.main.annot_ctrl.regions
                             if r.description == current_description]
             for ed_region in edit_regions:
                 idx = self.main.annot_ctrl._get_onset_idx(ed_region.getRegion()[0])
                 self.main.annot_ctrl.annotations.description[idx] = changed_description
-                ed_region.update_text(changed_description)
+                ed_region.update_description(changed_description)
+            self.main.annot_ctrl.descriptions = [changed_description if i == current_description
+                                                 else i for i in self.main.annot_ctrl.descriptions]
+            self.main.annot_ctrl.current_description = changed_description
             self.update_description_cmbx()
+            self.main.annot_ctrl.update_colors()
 
     def remove_description(self):
         rm_description = self.description_cmbx.currentText()
@@ -666,14 +672,13 @@ class AnnotationDock(QDockWidget):
                                   if r.description == rm_description]:
                     rm_region.remove()
 
+        # Remove from descriptions
+        self.main.annot_ctrl.descriptions.remove(rm_description)
+        self.update_description_cmbx()
+
         # Remove from color-mapping
         if rm_description in self.main.annot_ctrl.annot_color_mapping:
             self.main.annot_ctrl.annot_color_mapping.pop(rm_description)
-
-        # Remove from Combo-Box
-        cmbx_rm_idx = [self.description_cmbx.itemText(i)
-                       for i in range(self.description_cmbx.count())].index(rm_description)
-        self.description_cmbx.removeItem(cmbx_rm_idx)
 
         # Set first description in Combo-Box to current description
         self.description_cmbx.setCurrentIndex(0)
@@ -727,13 +732,8 @@ class AnnotationDock(QDockWidget):
         self.stop_bx.setValue(rgn[1])
 
     def update_description_cmbx(self):
-        # Get descriptions from combo-box to avoid removal of descriptions without annotations
-        all_items = [self.description_cmbx.itemText(i) for i in range(self.description_cmbx.count())]
-        # Add descriptions from raw.annotations when no items in Combo-Box
-        if len(all_items) == 0:
-            all_items = set(self.main.raw.annotations.description)
         self.description_cmbx.clear()
-        for description in all_items:
+        for description in self.main.annot_ctrl.descriptions:
             self._add_description_to_cmbx(description)
 
 

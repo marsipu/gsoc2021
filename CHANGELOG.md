@@ -1,3 +1,8 @@
+# Week 6
+## Monday, 2021-07-12
+- fixed some annotation-bugs
+- moved auto-downsampling away from PlotCurveItems
+
 # Week 5
 ## Friday, 2021-07-09
 - finish annotation-managemet
