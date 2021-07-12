@@ -2,6 +2,9 @@
 ## Monday, 2021-07-12
 - fixed some annotation-bugs
 - moved auto-downsampling away from PlotCurveItems
+- fixed color-bug for benchmark results
+- fixed bugs at scroll-boundaries
+- added downsampling-test
 
 # Week 5
 ## Friday, 2021-07-09

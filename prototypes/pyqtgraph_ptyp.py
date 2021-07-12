@@ -79,8 +79,7 @@ class RawCurveItem(PlotCurveItem):
 
         return x, y
 
-    def xrange_changed(self, xrange):
-        xmin, xmax = xrange
+    def xrange_changed(self, xmin, xmax):
         start = max(0, int(xmin * self.sfreq))
         stop = min(len(self.data), int(xmax * self.sfreq + 1))
         visible_x = self.times[start:stop]
@@ -453,7 +452,10 @@ class AnnotationController:
         colors, self.red = _get_color_list(annotations=True)
         self.color_cycle = cycle(colors)
         self.descriptions = list(set(main.raw.annotations.description))
-        self.current_description = self.descriptions[0]
+        if len(self.descriptions) > 0:
+            self.current_description = self.descriptions[0]
+        else:
+            self.current_description = None
         self.annot_color_mapping = dict()
         self.selected_region = None
         self.regions = list()
@@ -788,7 +790,7 @@ class RawPlot(PlotItem):
         self.lines.append(item)
 
         item.sigClicked.connect(self.bad_changed)
-        item.xrange_changed(self.getViewBox().viewRange()[0])
+        item.xrange_changed(*self.getViewBox().viewRange()[0])
 
         if self.main.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
@@ -843,7 +845,7 @@ class RawPlot(PlotItem):
 
         for line in self.lines:
             line.ds = ds
-            line.xrange_changed(xrange)
+            line.xrange_changed(*xrange)
 
         if self.main.show_annotations:
             self.main.annot_ctrl.update_range(*xrange)
@@ -864,8 +866,9 @@ class RawPlot(PlotItem):
             self.add_line(aidx, self.main.data[aidx], ch_name)
 
     def hscroll(self, step):
+        rel_step = self.main.duration * step
         # Get current range and add step to it
-        xmin, xmax = [i + step for i in self.vb.viewRange()[0]]
+        xmin, xmax = [i + rel_step for i in self.vb.viewRange()[0]]
 
         if xmin < 0:
             xmin = 0
@@ -876,8 +879,9 @@ class RawPlot(PlotItem):
 
         self.setXRange(xmin, xmax, padding=0)
 
-    def infini_hscroll(self, step, parent):
-        if parent.n_bm % (int(self.xmax / step) - self.main.duration) == 0:
+    def infini_hscroll(self, step):
+        vr = self.getViewBox().viewRange()
+        if vr[0][1] + step > self.xmax or vr[0][0] - step < 0:
             self._hscroll_dir *= -1
         step *= self._hscroll_dir
         self.hscroll(step)
@@ -895,16 +899,18 @@ class RawPlot(PlotItem):
 
         self.setYRange(ymin, ymax, padding=0)
 
-    def infini_vscroll(self, step, parent):
-        if parent.n_bm % (int(self.ymax / step) - self.main.nchan) == 0:
+    def infini_vscroll(self, step):
+        vr = self.getViewBox().viewRange()
+        if vr[1][1] + step > self.ymax or vr[1][0] - step < 0:
             self._vscroll_dir *= -1
         step *= self._vscroll_dir
         self.vscroll(step)
 
     def change_duration(self, step):
+        rel_step = self.main.duration * step
         xmin, xmax = self.vb.viewRange()[0]
-        newxmax = xmax + step
-        newxmin = xmin - step
+        newxmax = xmax + rel_step
+        newxmin = xmin - rel_step
         if 0 < newxmax < self.xmax:
             xmax = newxmax
         elif 0 < newxmin < self.xmax:
@@ -912,25 +918,20 @@ class RawPlot(PlotItem):
         else:
             return
 
-        self.main.duration += step
+        self.main.duration += rel_step
         self.setXRange(xmin, xmax, padding=0)
 
     # Todo: Make failsafe at boundaries
     def change_nchan(self, step):
         ymin, ymax = self.vb.viewRange()[1]
         newymax = ymax + step
-        newymin = ymin - step
-        if 2 < newymax < self.ymax:
-            ymax = newymax
-        elif 0 < newymin < self.ymax:
-            ymin = newymin
+        if newymax - ymin <= 2:
+            newymax = ymin + 2
         elif newymax > self.ymax:
-            ymax = self.ymax
-        elif newymin < 1:
-            ymin = 1
+            newymax = self.ymax
 
         self.main.nchan += step
-        self.setYRange(ymin, ymax, padding=0)
+        self.setYRange(ymin, newymax, padding=0)
 
     def remove_vline(self):
         if self.vline:
@@ -960,7 +961,7 @@ class RawPlot(PlotItem):
 
 class PyQtGraphPtyp(QMainWindow):
     def __init__(self, raw, data, times, duration=20,
-                 nchan=30, ds='auto', ds_method='mean', ds_chunk_size=None,
+                 nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
                  enable_cache=False, antialiasing=False, use_opengl=False,
                  show_annotations=True):
         """
@@ -1007,8 +1008,8 @@ class PyQtGraphPtyp(QMainWindow):
         self.times = times
         self.annotation_mode = False
 
-        self.duration = duration
-        self.nchan = nchan
+        self.duration = min(duration, self.raw.n_times / self.raw.info['sfreq'])
+        self.nchan = min(nchan, len(self.raw.ch_names))
         self.ds = ds
         self.ds_method = ds_method
         self.ds_chunk_size = ds_chunk_size
@@ -1053,19 +1054,19 @@ class PyQtGraphPtyp(QMainWindow):
         self.toolbar = self.addToolBar('Tools')
 
         adecr_time = QAction('-Time', parent=self)
-        adecr_time.triggered.connect(partial(self.plt.change_duration, -1))
+        adecr_time.triggered.connect(partial(self.plt.change_duration, -0.25))
         self.toolbar.addAction(adecr_time)
 
         aincr_time = QAction('+Time', parent=self)
-        aincr_time.triggered.connect(partial(self.plt.change_duration, 1))
+        aincr_time.triggered.connect(partial(self.plt.change_duration, 0.25))
         self.toolbar.addAction(aincr_time)
 
         adecr_nchan = QAction('-Channels', parent=self)
-        adecr_nchan.triggered.connect(partial(self.plt.change_nchan, -1))
+        adecr_nchan.triggered.connect(partial(self.plt.change_nchan, -10))
         self.toolbar.addAction(adecr_nchan)
 
         aincr_nchan = QAction('+Channels', parent=self)
-        aincr_nchan.triggered.connect(partial(self.plt.change_nchan, 1))
+        aincr_nchan.triggered.connect(partial(self.plt.change_nchan, 10))
         self.toolbar.addAction(aincr_nchan)
 
         ahelp = QAction('Help', parent=self)
@@ -1120,44 +1121,44 @@ class PyQtGraphPtyp(QMainWindow):
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Left:
             if event.modifiers() == QtCore.Qt.ControlModifier:
-                self.plt.hscroll(-1)
+                self.plt.hscroll(-0.05)
             else:
-                self.plt.hscroll(-self.duration / 2)
+                self.plt.hscroll(-0.5)
         elif event.key() == QtCore.Qt.Key_Right:
             if event.modifiers() == QtCore.Qt.ControlModifier:
-                self.plt.hscroll(1)
+                self.plt.hscroll(0.05)
             else:
-                self.plt.hscroll(self.duration / 2)
+                self.plt.hscroll(0.5)
         elif event.key() == QtCore.Qt.Key_Up:
             if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.vscroll(-1)
             else:
-                self.plt.vscroll(int(-self.nchan / 2))
+                self.plt.vscroll(-10)
         elif event.key() == QtCore.Qt.Key_Down:
             if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.vscroll(1)
             else:
-                self.plt.vscroll(int(self.nchan / 2))
+                self.plt.vscroll(10)
         elif event.key() == QtCore.Qt.Key_Home:
             if event.modifiers() == QtCore.Qt.ControlModifier:
-                self.plt.change_duration(-1)
+                self.plt.change_duration(-0.025)
             else:
-                self.plt.change_duration(-self.duration / 4)
+                self.plt.change_duration(-0.25)
         elif event.key() == QtCore.Qt.Key_End:
             if event.modifiers() == QtCore.Qt.ControlModifier:
-                self.plt.change_duration(1)
+                self.plt.change_duration(0.025)
             else:
-                self.plt.change_duration(self.duration / 4)
+                self.plt.change_duration(0.25)
         elif event.key() == QtCore.Qt.Key_PageDown:
             if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.change_nchan(-1)
             else:
-                self.plt.change_nchan(int(-self.nchan / 4))
+                self.plt.change_nchan(-10)
         elif event.key() == QtCore.Qt.Key_PageUp:
             if event.modifiers() == QtCore.Qt.ControlModifier:
                 self.plt.change_nchan(1)
             else:
-                self.plt.change_nchan(int(self.nchan / 4))
+                self.plt.change_nchan(10)
         elif event.key() == QtCore.Qt.Key_A:
             self.annotation_mode = not self.annotation_mode
             self.toggle_annot_mode()

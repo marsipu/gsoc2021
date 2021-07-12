@@ -249,6 +249,8 @@ class BenchmarkWindow(QMainWindow):
         self.backend_name = 'PyQtGraph'
         self.backend_kwargs = dict()
 
+        self.ds_test = False
+
         self.load_backend()
 
         self.last_time = None
@@ -257,7 +259,7 @@ class BenchmarkWindow(QMainWindow):
         self.n_limit = 50
 
         # limit for change duration/n-channel benchmarks (stays inside this range)
-        self.change_limit = 20
+        self.change_limit = 50
 
         self.bm_run = None
         self.stop_multi_run = False
@@ -316,7 +318,16 @@ class BenchmarkWindow(QMainWindow):
             self.backend.deleteLater()
             del self.backend
 
-        self.backend = backend_class(self.raw, self.data, self.times, **self.backend_kwargs)
+        if self.ds_test:
+            raw = self.raw.copy().pick(0)
+            data = raw.get_data()
+            data[::] = 0
+            data[0][::97] = 0.5
+        else:
+            raw = self.raw
+            data = self.data
+
+        self.backend = backend_class(raw, data, self.times, **self.backend_kwargs)
         self.setCentralWidget(self.backend)
 
     def get_bm_cmbx(self):
@@ -367,6 +378,10 @@ class BenchmarkWindow(QMainWindow):
         aedit_bm = QAction('Benchmark-Queue', parent=self)
         aedit_bm.triggered.connect(partial(BenchmarkEditor, self))
         self.toolbar.addAction(aedit_bm)
+
+        ads_test = QAction('Downsampling-Test', parent=self)
+        ads_test.triggered.connect(self.toggle_ds_test)
+        self.toolbar.addAction(ads_test)
 
         ampl_plot = QAction('MPL-Plot', parent=self)
         ampl_plot.triggered.connect(self.mpl_plot)
@@ -426,11 +441,11 @@ class BenchmarkWindow(QMainWindow):
 
     @benchmark
     def benchmark_hscroll(self):
-        self.backend.plt.infini_hscroll(1, self)
+        self.backend.plt.infini_hscroll(0.05)
 
     @benchmark
     def benchmark_vscroll(self):
-        self.backend.plt.infini_vscroll(1, self)
+        self.backend.plt.infini_vscroll(1)
 
     @benchmark
     def benchmark_duration_change(self):
@@ -502,6 +517,10 @@ class BenchmarkWindow(QMainWindow):
 
     def save_raw(self, _):
         self.raw.save(self.raw_hp_filtered_path, overwrite=True)
+
+    def toggle_ds_test(self):
+        self.ds_test = not self.ds_test
+        self.load_backend()
 
     def mpl_plot(self):
         fig = self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])
