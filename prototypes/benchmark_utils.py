@@ -291,7 +291,7 @@ class BenchmarkWindow(QMainWindow):
                                               inst=self.raw, remove_dc=True)
             self.data, self.times = self.raw.get_data(return_times=True)
             # Apply scalings
-            ch_types = self.raw.get_channel_types()
+            ch_types = np.array(self.raw.get_channel_types())
             stims = ch_types == 'stim'
             norms = np.vectorize(self.scalings.__getitem__)(ch_types)
             norms[stims] = self.data[stims].max(axis=-1)
