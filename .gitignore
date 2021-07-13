@@ -131,4 +131,7 @@ dmypy.json
 # PyCharm Project-Files
 .idea/
 
+# VSCode-Files
+.vscode/
+
 filtered_raw.fif
