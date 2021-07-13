@@ -38,7 +38,7 @@
 
 ## User Interaction
 - [X] Arrow-Keys for left-right-movement
-- [ ] Fix Arrow on MacOs
+- [X] Fix Arrow on MacOs
 - [ ] Right-Click Dragging for scaling
 
 ## Advanced Features

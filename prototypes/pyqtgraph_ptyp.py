@@ -18,7 +18,7 @@ from pyqtgraph.Qt import QtCore
 
 class RawCurveItem(PlotCurveItem):
     def __init__(self, data, times, ch_name, ypos, sfreq,
-                 ds, ds_method, ds_chunk_size, isbad):
+                 ds, ds_method, ds_chunk_size, enable_ds_cache, isbad):
         super().__init__(clickable=True)
         self._data = data
         self._times = times
@@ -28,8 +28,11 @@ class RawCurveItem(PlotCurveItem):
         self.ds = ds
         self.ds_method = ds_method
         self.ds_chunk_size = ds_chunk_size
+        self.enable_ds_cache = enable_ds_cache
         self.isbad = isbad
         self.update_bad_color()
+
+        self.ds_cache = dict()
 
     @property
     def data(self):
@@ -53,23 +56,42 @@ class RawCurveItem(PlotCurveItem):
         else:
             self.setPen('k')
 
-    def apply_ds(self, x, y, ds):
+    def get_ds_cache(self, xmin, xmax):
+        if self.ds in self.ds_cache:
+            x, y = self.ds_cache[self.ds]
+        else:
+            x, y = self.apply_ds(self.times, self.data)
+            self.ds_cache[self.ds] = (x, y)
+
+        min_ix = np.argmin(abs(x - xmin))
+        max_ix = np.argmin(abs(x - xmax))
+
+        x = x[min_ix:max_ix]
+        y = y[min_ix:max_ix]
+
+        return x, y
+
+    def apply_ds(self, x, y):
         if self.ds_method == 'subsample':
-            x = x[::ds]
-            y = y[::ds]
+            x = x[::self.ds]
+            y = y[::self.ds]
+
         elif self.ds_method == 'mean':
-            n = len(x) // ds
-            stx = ds // 2  # start of x-values; try to select a somewhat centered point
-            x = x[stx:stx + n * ds:ds]
-            y = y[:n * ds].reshape(n, ds).mean(axis=1)
+            n = len(x) // self.ds
+            stx = self.ds // 2  # start of x-values; try to select a somewhat centered point
+            x = x[stx:stx + n * self.ds:self.ds]
+            y = y[:n * self.ds].reshape(n, self.ds).mean(axis=1)
+
         elif self.ds_method == 'peak':
-            n = len(x) // ds
+            n = len(x) // self.ds
+            stx = self.ds // 2  # start of x-values; try to select a somewhat centered point
+
             x1 = np.empty((n, 2))
-            stx = ds // 2  # start of x-values; try to select a somewhat centered point
-            x1[:] = x[stx:stx + n * ds:ds, np.newaxis]
+            x1[:] = x[stx:stx + n * self.ds:self.ds, np.newaxis]
             x = x1.reshape(n * 2)
+
             y1 = np.empty((n, 2))
-            y2 = y[:n * ds].reshape((n, ds))
+            y2 = y[:n * self.ds].reshape((n, self.ds))
             y1[:, 0] = y2.max(axis=1)
             y1[:, 1] = y2.min(axis=1)
             y = y1.reshape(n * 2)
@@ -84,7 +106,10 @@ class RawCurveItem(PlotCurveItem):
         visible_y = self.data[start:stop]
 
         if self.ds not in [1, None]:
-            if self.ds_chunk_size:
+            if self.enable_ds_cache:
+                x, y = self.get_ds_cache(xmin, xmax)
+
+            elif self.ds_chunk_size:
                 chunkSize = (self.ds_chunk_size // self.ds) * self.ds
                 sourcePtr = 0
                 x = np.empty(0, dtype=self.times.dtype)
@@ -95,13 +120,13 @@ class RawCurveItem(PlotCurveItem):
                     ychunk = visible_y[sourcePtr:min(stop, sourcePtr + chunkSize)]
                     sourcePtr += len(xchunk)
 
-                    xchunk, ychunk = self.apply_ds(xchunk, ychunk, self.ds)
+                    xchunk, ychunk = self.apply_ds(xchunk, ychunk)
 
                     x = np.append(x, xchunk)
                     y = np.append(y, ychunk)
 
             else:
-                x, y = self.apply_ds(visible_x, visible_y, self.ds)
+                x, y = self.apply_ds(visible_x, visible_y)
 
         else:
             x = visible_x
@@ -782,6 +807,7 @@ class RawPlot(PlotItem):
         item = RawCurveItem(data=ch_data, times=self.main.times, ch_name=ch_name, ypos=ypos,
                             sfreq=self.main.raw.info['sfreq'], ds=ds,
                             ds_method=self.main.ds_method, ds_chunk_size=self.main.ds_chunk_size,
+                            enable_ds_cache=self.main.enable_ds_cache,
                             isbad=ch_name in self.main.raw.info['bads'])
         # Add Item early to have access to viewBox
         self.addItem(item)
@@ -965,7 +991,8 @@ class PyQtGraphPtyp(QMainWindow):
     def __init__(self, raw, data, times, duration=20,
                  nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
                  enable_cache=False, antialiasing=False, use_opengl=False,
-                 show_annotations=True, direct_xrange_connect=True):
+                 show_annotations=True, direct_xrange_connect=False,
+                 enable_ds_cache=True):
         """
         PyQtGraph-Prototype as a new backend for raw.plot() from MNE-Python.
 
@@ -1000,7 +1027,9 @@ class PyQtGraphPtyp(QMainWindow):
         show_annotations : bool
             Wether to show annotations (may impact performance in benchmarks).
         direct_xrange_connect : bool
-            If True the sigXRangeChanged-Signal from the ViewBox is connected directly to the RawCurveItems instead
+            If True the sigXRangeChanged-Signal from the ViewBox is connected directly to the RawCurveItems instead.
+        enable_ds_cache : bool
+            If True cache the downsampled arrays inside RawCurveItems per downsampling-factor.
         """
         super().__init__()
 
@@ -1020,6 +1049,7 @@ class PyQtGraphPtyp(QMainWindow):
         self.enable_cache = enable_cache
         self.show_annotations = show_annotations
         self.direct_xrange_connect = direct_xrange_connect
+        self.enable_ds_cache = enable_ds_cache
 
         self.clock_ticks = False
 
@@ -1129,23 +1159,24 @@ class PyQtGraphPtyp(QMainWindow):
         # On MacOs KeypadModifier is set when arrow-keys are pressed.
         # To preserve cross-platform consistency the following comparison
         # of the modifier-values is done.
+        modhex = hex(int(event.modifiers()))
         if event.key() == QtCore.Qt.Key_Left:
-            if hex(int(event.modifiers()))[3] == '4':
+            if len(modhex) > 3 and modhex[3] == '4':
                 self.plt.hscroll(-0.05)
             else:
                 self.plt.hscroll(-0.5)
         elif event.key() == QtCore.Qt.Key_Right:
-            if hex(int(event.modifiers()))[3] == '4':
+            if len(modhex) > 3 and modhex[3] == '4':
                 self.plt.hscroll(0.05)
             else:
                 self.plt.hscroll(0.5)
         elif event.key() == QtCore.Qt.Key_Up:
-            if hex(int(event.modifiers()))[3] == '4':
+            if len(modhex) > 3 and modhex[3] == '4':
                 self.plt.vscroll(-1)
             else:
                 self.plt.vscroll(-10)
         elif event.key() == QtCore.Qt.Key_Down:
-            if hex(int(event.modifiers()))[3] == '4':
+            if len(modhex) > 3 and modhex[3] == '4':
                 self.plt.vscroll(1)
             else:
                 self.plt.vscroll(10)
