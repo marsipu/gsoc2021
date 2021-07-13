@@ -26,16 +26,19 @@
 - [X] Mark Channels (including channel-label)
 - [X] Area Selection
 
+## Application Configuration
+- [ ] Entry point for application
 
 ## Performance
-- [ ] Downsampling-test (with artificial peak-file, no omission of peaks)
-- [ ] compare Annotations persistent in scene or with Range-Update
+- [X] Downsampling-test (with artificial peak-file, no omission of peaks)
 - [ ] Profiling/Optimizing current code (range-update, LineItem-Initialization)
+- [ ] Compare sequential line-update or direct signal-connection on xrange-change
 - [X] Downsampling as in hdf5-example
 
 
 ## User Interaction
 - [X] Arrow-Keys for left-right-movement
+- [ ] Fix Arrow on MacOs
 - [ ] Right-Click Dragging for scaling
 
 ## Advanced Features

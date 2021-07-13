@@ -1019,7 +1019,7 @@ class PyQtGraphPtyp(QMainWindow):
         self.clock_ticks = False
 
         # Create centralWidget and layout
-        self.setCentralWidget(QWidget())
+        widget = QWidget()
         layout = QGridLayout()
 
         # Initialize Line-Plot
@@ -1037,7 +1037,9 @@ class PyQtGraphPtyp(QMainWindow):
         layout.addWidget(self.time_bar, 1, 0)
         self.channel_bar = ChannelScrollBar(self)
         layout.addWidget(self.channel_bar, 0, 1)
-        self.centralWidget().setLayout(layout)
+
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
 
         if self.show_annotations:
             # Initialize annotation-controller
@@ -1121,6 +1123,7 @@ class PyQtGraphPtyp(QMainWindow):
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Left:
             if event.modifiers() == QtCore.Qt.ControlModifier:
+                print(event.modifiers())
                 self.plt.hscroll(-0.05)
             else:
                 self.plt.hscroll(-0.5)
