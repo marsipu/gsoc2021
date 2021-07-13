@@ -76,7 +76,8 @@ class RawCurveItem(PlotCurveItem):
 
         return x, y
 
-    def xrange_changed(self, xmin, xmax):
+    def xrange_changed(self, _, xrange):
+        xmin, xmax = xrange
         start = max(0, int(xmin * self.sfreq))
         stop = min(len(self.data), int(xmax * self.sfreq + 1))
         visible_x = self.times[start:stop]
@@ -630,7 +631,6 @@ class AnnotationDock(QDockWidget):
         color_pixmap.fill(color)
         color_icon = QIcon(color_pixmap)
         self.description_cmbx.addItem(color_icon, description)
-        self.description_cmbx.setCurrentText(description)
 
     def add_description(self):
         new_description, ok = QInputDialog.getText(self, 'Set the name for the new description!', 'New description: ')
@@ -736,6 +736,7 @@ class AnnotationDock(QDockWidget):
         self.description_cmbx.clear()
         for description in self.main.annot_ctrl.descriptions:
             self._add_description_to_cmbx(description)
+        self.description_cmbx.setCurrentText(self.main.annot_ctrl.current_description)
 
 
 class RawPlot(PlotItem):
@@ -787,7 +788,10 @@ class RawPlot(PlotItem):
         self.lines.append(item)
 
         item.sigClicked.connect(self.bad_changed)
-        item.xrange_changed(*self.getViewBox().viewRange()[0])
+        item.xrange_changed(None, self.getViewBox().viewRange()[0])
+
+        if self.main.direct_xrange_connect:
+            self.sigXRangeChanged.connect(item.xrange_changed)
 
         if self.main.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
@@ -840,9 +844,10 @@ class RawPlot(PlotItem):
     def xrange_changed(self, _, xrange):
         ds = self._get_downsampling()
 
-        for line in self.lines:
-            line.ds = ds
-            line.xrange_changed(*xrange)
+        if not self.main.direct_xrange_connect:
+            for line in self.lines:
+                line.ds = ds
+                line.xrange_changed(None, xrange)
 
         if self.main.show_annotations:
             self.main.annot_ctrl.update_range(*xrange)
@@ -960,7 +965,7 @@ class PyQtGraphPtyp(QMainWindow):
     def __init__(self, raw, data, times, duration=20,
                  nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
                  enable_cache=False, antialiasing=False, use_opengl=False,
-                 show_annotations=True):
+                 show_annotations=True, direct_xrange_connect=True):
         """
         PyQtGraph-Prototype as a new backend for raw.plot() from MNE-Python.
 
@@ -992,8 +997,10 @@ class PyQtGraphPtyp(QMainWindow):
             Enable Antialiasing.
         use_opengl : bool
             Use OpenGL (seems to just work on Linux for now).
-        show_annotations :
+        show_annotations : bool
             Wether to show annotations (may impact performance in benchmarks).
+        direct_xrange_connect : bool
+            If True the sigXRangeChanged-Signal from the ViewBox is connected directly to the RawCurveItems instead
         """
         super().__init__()
 
@@ -1012,6 +1019,7 @@ class PyQtGraphPtyp(QMainWindow):
         self.ds_chunk_size = ds_chunk_size
         self.enable_cache = enable_cache
         self.show_annotations = show_annotations
+        self.direct_xrange_connect = direct_xrange_connect
 
         self.clock_ticks = False
 
