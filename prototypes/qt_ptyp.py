@@ -14,7 +14,7 @@ from qtpy.QtCore import Qt
 import numpy as np
 import mne
 
-from prototypes.pyqtgraph_ptyp import ChannelScrollBar, TimeScrollBar
+from .pyqtgraph_ptyp import ChannelScrollBar, TimeScrollBar
 
 
 class Line(QGraphicsPathItem):

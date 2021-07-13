@@ -14,10 +14,10 @@ from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
                              QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
                              QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget)
 from mne.viz.utils import _compute_scalings, _get_color_list
-from pyqtgraph import PlotDataItem, PlotWidget, colormap, mkPen, time
+from pyqtgraph import PlotDataItem, PlotWidget, mkPen, time
 
-from prototypes.pyqtgraph_ptyp import HelpDialog, PyQtGraphPtyp
-from prototypes.qt_ptyp import PyQtPtyp
+from .pyqtgraph_ptyp import PyQtGraphPtyp
+from .qt_ptyp import PyQtPtyp
 
 
 class EvalParam(QLineEdit):

@@ -2,7 +2,7 @@ import sys
 
 import pyqtgraph as pg
 
-from prototypes.benchmark_utils import BenchmarkWindow
+from .benchmark_utils import BenchmarkWindow
 
 
 def main():

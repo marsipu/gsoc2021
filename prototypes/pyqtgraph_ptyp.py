@@ -1,10 +1,7 @@
 import datetime
-import math
 import platform
-from collections import OrderedDict
 from functools import partial
 from itertools import cycle
-from math import floor
 
 import numpy as np
 from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap
