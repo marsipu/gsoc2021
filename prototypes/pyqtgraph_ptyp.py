@@ -1118,24 +1118,26 @@ class PyQtGraphPtyp(QMainWindow):
             self.plt.toggle_annot_hint(self.annotation_mode)
 
     def keyPressEvent(self, event):
+        # On MacOs KeypadModifier is set when arrow-keys are pressed.
+        # To preserve cross-platform consistency the following comparison
+        # of the modifier-values is done.
         if event.key() == QtCore.Qt.Key_Left:
-            if event.modifiers() == QtCore.Qt.ControlModifier:
-                print(event.modifiers())
+            if hex(int(event.modifiers()))[3] == '4':
                 self.plt.hscroll(-0.05)
             else:
                 self.plt.hscroll(-0.5)
         elif event.key() == QtCore.Qt.Key_Right:
-            if event.modifiers() == QtCore.Qt.ControlModifier:
+            if hex(int(event.modifiers()))[3] == '4':
                 self.plt.hscroll(0.05)
             else:
                 self.plt.hscroll(0.5)
         elif event.key() == QtCore.Qt.Key_Up:
-            if event.modifiers() == QtCore.Qt.ControlModifier:
+            if hex(int(event.modifiers()))[3] == '4':
                 self.plt.vscroll(-1)
             else:
                 self.plt.vscroll(-10)
         elif event.key() == QtCore.Qt.Key_Down:
-            if event.modifiers() == QtCore.Qt.ControlModifier:
+            if hex(int(event.modifiers()))[3] == '4':
                 self.plt.vscroll(1)
             else:
                 self.plt.vscroll(10)

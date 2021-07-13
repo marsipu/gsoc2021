@@ -1,4 +1,7 @@
 # Week 6
+## Tuesday
+- fix bugs for ctrl-modifier on MacOS and imports
+
 ## Monday, 2021-07-12
 - fixed some annotation-bugs
 - moved auto-downsampling away from PlotCurveItems
