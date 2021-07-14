@@ -157,7 +157,7 @@ class PyQtPlot(QGraphicsView):
         xmax = xmin + self.duration
         for ch_name in self.lines:
             line = self.lines[ch_name][0]
-            line.xrange_changed(xmin, xmax)
+            line.range_changed(xmin, xmax)
         self.scene.update()
 
     def setXRange(self, xmin, xmax, padding):

@@ -441,7 +441,7 @@ class BenchmarkWindow(QMainWindow):
 
     @benchmark
     def benchmark_hscroll(self):
-        self.backend.plt.infini_hscroll(0.05)
+        self.backend.plt.infini_hscroll(10)
 
     @benchmark
     def benchmark_vscroll(self):

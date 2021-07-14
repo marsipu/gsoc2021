@@ -1,5 +1,8 @@
 # Week 6
-## Tuesday
+## Wednesday, 2021-07-14
+
+
+## Tuesday, 2021-07-13
 - fix bugs for ctrl-modifier on MacOS, imports, annotations
 - compared xrange-signal-connection (no big differences)
 - added downsampling-cache

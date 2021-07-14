@@ -98,8 +98,7 @@ class RawCurveItem(PlotCurveItem):
 
         return x, y
 
-    def xrange_changed(self, _, xrange):
-        xmin, xmax = xrange
+    def range_changed(self, xmin, xmax):
         start = max(0, int(xmin * self.sfreq))
         stop = min(len(self.data), int(xmax * self.sfreq + 1))
         visible_x = self.times[start:stop]
@@ -224,11 +223,12 @@ class TimeScrollBar(QScrollBar):
     def __init__(self, main):
         super().__init__(QtCore.Qt.Horizontal)
         self.main = main
+        self.step_factor = None
 
         self.setMinimum(0)
-        self.setMaximum(self.main.plt.xmax - self.main.duration)
-        self.update_duration()
         self.setSingleStep(1)
+        self.setPageStep(self.main.tsteps_per_window)
+        self.update_duration()
         self.setFocusPolicy(QtCore.Qt.WheelFocus)
         # Because valueChanged is needed (captures every input to scrollbar,
         # not just sliderMoved), there has to be made a differentiation
@@ -238,11 +238,22 @@ class TimeScrollBar(QScrollBar):
 
     def time_changed(self, value):
         if not self.external_change:
+            value /= self.step_factor
             self.main.plt.setXRange(value, value + self.main.duration, padding=0)
 
+    def update_value_external(self, _, xrange):
+        # Mark change as external to avoid setting XRange again in time_changed
+        self.external_change = True
+        self.setValue(xrange[0] * self.step_factor)
+        self.external_change = False
+        self.update_duration()
+
     def update_duration(self):
-        self.setPageStep(self.main.duration)
-        self.setMaximum(self.main.plt.xmax - self.main.duration)
+        new_step_factor = self.main.tsteps_per_window / self.main.duration
+        if new_step_factor != self.step_factor:
+            self.step_factor = new_step_factor
+            new_maximum = int((self.main.plt.xmax - self.main.duration) * self.step_factor)
+            self.setMaximum(new_maximum)
 
     def keyPressEvent(self, event):
         # Let main handle the keypress
@@ -270,6 +281,13 @@ class ChannelScrollBar(QScrollBar):
         new_ymax = value + self.main.nchan + 1
         if not self.external_change:
             self.main.plt.setYRange(new_ymin, new_ymax, padding=0)
+
+    def update_value_external(self, _, yrange):
+        # Mark change as external to avoid setting YRange again in channel_changed
+        self.external_change = True
+        self.setValue(yrange[0])
+        self.external_change = False
+        self.update_nchan()
 
     def update_nchan(self):
         self.setPageStep(self.main.nchan)
@@ -329,8 +347,7 @@ class RawViewBox(ViewBox):
         ev.accept()
         scroll = -1 * ev.delta() / 120
         if ev.orientation() == QtCore.Qt.Horizontal:
-            hscroll = scroll * self.main.duration / 100
-            self.main.plt.hscroll(hscroll)
+            self.main.plt.hscroll(scroll)
         elif ev.orientation() == QtCore.Qt.Vertical:
             self.main.plt.vscroll(scroll)
 
@@ -444,15 +461,16 @@ class AnnotationRegion(LinearRegionItem):
         if vb and self.label_item in vb.addedItems:
             vb.removeItem(self.label_item)
 
-    def select(self):
-        self.gotSelected.emit(self)
-        self.selected = True
+    def select(self, selected):
+        self.selected = selected
+        if selected:
+            self.gotSelected.emit(self)
         self.update()
 
     def mouseClickEvent(self, event):
         event.accept()
         if event.button() == QtCore.Qt.LeftButton and self.movable:
-            self.select()
+            self.select(True)
         elif event.button() == QtCore.Qt.RightButton and self.movable:
             self.remove()
 
@@ -559,7 +577,7 @@ class AnnotationController:
 
     def region_changed(self, region):
         rgn = region.getRegion()
-        region.select()
+        region.select(True)
         idx = self._get_onset_idx(region.old_onset)
 
         # Update Spinboxes of Annot-Dock
@@ -599,6 +617,10 @@ class AnnotationController:
     def change_mode(self, annotation_on):
         for region in self.regions:
             region.setMovable(annotation_on)
+        if not annotation_on:
+            if self.selected_region:
+                self.selected_region.select(False)
+                self.selected_region = None
 
 
 class AnnotationDock(QDockWidget):
@@ -763,6 +785,13 @@ class AnnotationDock(QDockWidget):
             self._add_description_to_cmbx(description)
         self.description_cmbx.setCurrentText(self.main.annot_ctrl.current_description)
 
+    def reset(self):
+        if self.description_cmbx.count() > 0:
+            self.description_cmbx.setCurrentIndex(0)
+            self.main.annot_ctrl.current_description = self.description_cmbx.currentText()
+        self.start_bx.setValue(0)
+        self.stop_bx.setValue(0)
+
 
 class RawPlot(PlotItem):
     def __init__(self, main):
@@ -809,15 +838,13 @@ class RawPlot(PlotItem):
                             ds_method=self.main.ds_method, ds_chunk_size=self.main.ds_chunk_size,
                             enable_ds_cache=self.main.enable_ds_cache,
                             isbad=ch_name in self.main.raw.info['bads'])
+
         # Add Item early to have access to viewBox
         self.addItem(item)
         self.lines.append(item)
 
         item.sigClicked.connect(self.bad_changed)
-        item.xrange_changed(None, self.getViewBox().viewRange()[0])
-
-        if self.main.direct_xrange_connect:
-            self.sigXRangeChanged.connect(item.xrange_changed)
+        item.range_changed(*self.getViewBox().viewRange()[0])
 
         if self.main.enable_cache:
             item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
@@ -870,10 +897,9 @@ class RawPlot(PlotItem):
     def xrange_changed(self, _, xrange):
         ds = self._get_downsampling()
 
-        if not self.main.direct_xrange_connect:
-            for line in self.lines:
-                line.ds = ds
-                line.xrange_changed(None, xrange)
+        for line in self.lines:
+            line.ds = ds
+            line.range_changed(*xrange)
 
         if self.main.show_annotations:
             self.main.annot_ctrl.update_range(*xrange)
@@ -894,7 +920,7 @@ class RawPlot(PlotItem):
             self.add_line(aidx, self.main.data[aidx], ch_name)
 
     def hscroll(self, step):
-        rel_step = self.main.duration * step
+        rel_step = self.main.duration * step / self.main.tsteps_per_window
         # Get current range and add step to it
         xmin, xmax = [i + rel_step for i in self.vb.viewRange()[0]]
 
@@ -909,7 +935,8 @@ class RawPlot(PlotItem):
 
     def infini_hscroll(self, step):
         vr = self.getViewBox().viewRange()
-        if vr[0][1] + step > self.xmax or vr[0][0] - step < 0:
+        rel_step = self.main.duration * step / self.main.tsteps_per_window
+        if vr[0][1] + rel_step > self.xmax or vr[0][0] - rel_step < 0:
             self._hscroll_dir *= -1
         step *= self._hscroll_dir
         self.hscroll(step)
@@ -935,31 +962,37 @@ class RawPlot(PlotItem):
         self.vscroll(step)
 
     def change_duration(self, step):
-        rel_step = self.main.duration * step
+        rel_step = (self.main.duration * step) / (self.main.tsteps_per_window * 2)
         xmin, xmax = self.vb.viewRange()[0]
-        newxmax = xmax + rel_step
-        newxmin = xmin - rel_step
-        if 0 < newxmax < self.xmax:
-            xmax = newxmax
-        elif 0 < newxmin < self.xmax:
-            xmin = newxmin
-        else:
-            return
+        xmax += rel_step
+        xmin -= rel_step
 
-        self.main.duration += rel_step
+        if xmax > self.xmax:
+            xmax = self.xmax
+
+        if xmin < 0:
+            xmin = 0
+
+        self.main.duration = xmax - xmin
+
         self.setXRange(xmin, xmax, padding=0)
 
-    # Todo: Make failsafe at boundaries
     def change_nchan(self, step):
         ymin, ymax = self.vb.viewRange()[1]
-        newymax = ymax + step
-        if newymax - ymin <= 2:
-            newymax = ymin + 2
-        elif newymax > self.ymax:
-            newymax = self.ymax
+        ymax += step
+        if ymax > self.ymax:
+            ymax = self.ymax
+            ymin -= step
 
-        self.main.nchan += step
-        self.setYRange(ymin, newymax, padding=0)
+        if ymin < 0:
+            ymin = 0
+
+        if ymax - ymin <= 2:
+            ymax = ymin + 2
+
+        self.main.nchan = ymax - ymin - 1
+
+        self.setYRange(ymin, ymax, padding=0)
 
     def remove_vline(self):
         if self.vline:
@@ -991,8 +1024,8 @@ class PyQtGraphPtyp(QMainWindow):
     def __init__(self, raw, data, times, duration=20,
                  nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
                  enable_cache=False, antialiasing=False, use_opengl=False,
-                 show_annotations=True, direct_xrange_connect=False,
-                 enable_ds_cache=True):
+                 show_annotations=True, enable_ds_cache=True,
+                 tsteps_per_window=1000):
         """
         PyQtGraph-Prototype as a new backend for raw.plot() from MNE-Python.
 
@@ -1026,10 +1059,10 @@ class PyQtGraphPtyp(QMainWindow):
             Use OpenGL (seems to just work on Linux for now).
         show_annotations : bool
             Wether to show annotations (may impact performance in benchmarks).
-        direct_xrange_connect : bool
-            If True the sigXRangeChanged-Signal from the ViewBox is connected directly to the RawCurveItems instead.
         enable_ds_cache : bool
             If True cache the downsampled arrays inside RawCurveItems per downsampling-factor.
+        tsteps_per_window : int
+            Set how many single scrolling-steps are done in time for the shown time-window.
         """
         super().__init__()
 
@@ -1048,8 +1081,8 @@ class PyQtGraphPtyp(QMainWindow):
         self.ds_chunk_size = ds_chunk_size
         self.enable_cache = enable_cache
         self.show_annotations = show_annotations
-        self.direct_xrange_connect = direct_xrange_connect
         self.enable_ds_cache = enable_ds_cache
+        self.tsteps_per_window = tsteps_per_window
 
         self.clock_ticks = False
 
@@ -1060,8 +1093,6 @@ class PyQtGraphPtyp(QMainWindow):
         # Initialize Line-Plot
         self.view = GraphicsView(background='w')
         self.plt = RawPlot(self)
-        self.plt.sigXRangeChanged.connect(self.xrange_changed)
-        self.plt.sigYRangeChanged.connect(self.yrange_changed)
         self.view.setCentralItem(self.plt)
         self.view.setAntialiasing(antialiasing)
         self.view.useOpenGL(use_opengl)
@@ -1069,8 +1100,11 @@ class PyQtGraphPtyp(QMainWindow):
 
         # Initialize Scroll-Bars
         self.time_bar = TimeScrollBar(self)
+        self.plt.sigXRangeChanged.connect(self.time_bar.update_value_external)
         layout.addWidget(self.time_bar, 1, 0)
+
         self.channel_bar = ChannelScrollBar(self)
+        self.plt.sigYRangeChanged.connect(self.channel_bar.update_value_external)
         layout.addWidget(self.channel_bar, 0, 1)
 
         widget.setLayout(layout)
@@ -1091,11 +1125,11 @@ class PyQtGraphPtyp(QMainWindow):
         self.toolbar = self.addToolBar('Tools')
 
         adecr_time = QAction('-Time', parent=self)
-        adecr_time.triggered.connect(partial(self.plt.change_duration, -0.25))
+        adecr_time.triggered.connect(partial(self.plt.change_duration, -self.tsteps_per_window / 10))
         self.toolbar.addAction(adecr_time)
 
         aincr_time = QAction('+Time', parent=self)
-        aincr_time.triggered.connect(partial(self.plt.change_duration, 0.25))
+        aincr_time.triggered.connect(partial(self.plt.change_duration, self.tsteps_per_window / 10))
         self.toolbar.addAction(aincr_time)
 
         adecr_nchan = QAction('-Channels', parent=self)
@@ -1135,68 +1169,59 @@ class PyQtGraphPtyp(QMainWindow):
             ('t', 'Toggle time format')
         ]
 
-    def xrange_changed(self, _, xrange):
-        # Mark change as external
-        self.time_bar.external_change = True
-        self.time_bar.setValue(xrange[0])
-        self.time_bar.external_change = False
-        self.time_bar.update_duration()
-
-    def yrange_changed(self, _, yrange):
-        # Mark change as external
-        self.channel_bar.external_change = True
-        self.channel_bar.setValue(yrange[0])
-        self.channel_bar.external_change = False
-        self.channel_bar.update_nchan()
-
     def toggle_annot_mode(self):
         if self.show_annotations:
+            if not self.annotation_mode:
+                self.annot_dock.reset()
             self.annot_dock.setVisible(self.annotation_mode)
             self.annot_ctrl.change_mode(self.annotation_mode)
             self.plt.toggle_annot_hint(self.annotation_mode)
 
     def keyPressEvent(self, event):
-        # On MacOs KeypadModifier is set when arrow-keys are pressed.
+        # On MacOs additionally KeypadModifier is set when arrow-keys are pressed.
+        # On Unix GroupSwitchModifier is set when ctrl is pressed.
         # To preserve cross-platform consistency the following comparison
         # of the modifier-values is done.
         modhex = hex(int(event.modifiers()))
+        lil_t = self.tsteps_per_window / 100
+        big_t = self.tsteps_per_window / 10
         if event.key() == QtCore.Qt.Key_Left:
-            if len(modhex) > 3 and modhex[3] == '4':
-                self.plt.hscroll(-0.05)
+            if '4' in modhex:
+                self.plt.hscroll(-lil_t)
             else:
-                self.plt.hscroll(-0.5)
+                self.plt.hscroll(-big_t)
         elif event.key() == QtCore.Qt.Key_Right:
-            if len(modhex) > 3 and modhex[3] == '4':
-                self.plt.hscroll(0.05)
+            if '4' in modhex:
+                self.plt.hscroll(lil_t)
             else:
-                self.plt.hscroll(0.5)
+                self.plt.hscroll(big_t)
         elif event.key() == QtCore.Qt.Key_Up:
-            if len(modhex) > 3 and modhex[3] == '4':
+            if '4' in modhex:
                 self.plt.vscroll(-1)
             else:
                 self.plt.vscroll(-10)
         elif event.key() == QtCore.Qt.Key_Down:
-            if len(modhex) > 3 and modhex[3] == '4':
+            if '4' in modhex:
                 self.plt.vscroll(1)
             else:
                 self.plt.vscroll(10)
         elif event.key() == QtCore.Qt.Key_Home:
-            if event.modifiers() == QtCore.Qt.ControlModifier:
-                self.plt.change_duration(-0.025)
+            if '4' in modhex:
+                self.plt.change_duration(-lil_t)
             else:
-                self.plt.change_duration(-0.25)
+                self.plt.change_duration(-big_t)
         elif event.key() == QtCore.Qt.Key_End:
-            if event.modifiers() == QtCore.Qt.ControlModifier:
-                self.plt.change_duration(0.025)
+            if '4' in modhex:
+                self.plt.change_duration(lil_t)
             else:
-                self.plt.change_duration(0.25)
+                self.plt.change_duration(big_t)
         elif event.key() == QtCore.Qt.Key_PageDown:
-            if event.modifiers() == QtCore.Qt.ControlModifier:
+            if '4' in modhex:
                 self.plt.change_nchan(-1)
             else:
                 self.plt.change_nchan(-10)
         elif event.key() == QtCore.Qt.Key_PageUp:
-            if event.modifiers() == QtCore.Qt.ControlModifier:
+            if '4' in modhex:
                 self.plt.change_nchan(1)
             else:
                 self.plt.change_nchan(10)
