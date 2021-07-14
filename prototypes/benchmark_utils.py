@@ -290,10 +290,10 @@ class BenchmarkWindow(QMainWindow):
             self.scalings = _compute_scalings(scalings=dict(),
                                               inst=self.raw, remove_dc=True)
             self.data, self.times = self.raw.get_data(return_times=True)
+            self.ch_types = np.array(self.raw.get_channel_types())
             # Apply scalings
-            ch_types = np.array(self.raw.get_channel_types())
-            stims = ch_types == 'stim'
-            norms = np.vectorize(self.scalings.__getitem__)(ch_types)
+            stims = self.ch_types == 'stim'
+            norms = np.vectorize(self.scalings.__getitem__)(self.ch_types)
             norms[stims] = self.data[stims].max(axis=-1)
             norms[norms == 0] = 1
             self.data /= 2 * norms[:, np.newaxis]
@@ -327,7 +327,7 @@ class BenchmarkWindow(QMainWindow):
             raw = self.raw
             data = self.data
 
-        self.backend = backend_class(raw, data, self.times, **self.backend_kwargs)
+        self.backend = backend_class(raw, data, self.times, self.ch_types, **self.backend_kwargs)
         self.setCentralWidget(self.backend)
 
     def get_bm_cmbx(self):

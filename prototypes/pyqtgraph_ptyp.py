@@ -17,12 +17,14 @@ from pyqtgraph.Qt import QtCore
 
 
 class RawCurveItem(PlotCurveItem):
-    def __init__(self, data, times, ch_name, ypos, sfreq,
+    def __init__(self, data, times, ch_name, ch_type, color, ypos, sfreq,
                  ds, ds_method, ds_chunk_size, enable_ds_cache, isbad):
         super().__init__(clickable=True)
         self._data = data
         self._times = times
         self.ch_name = ch_name
+        self.ch_type = ch_type
+        self.color = color
         self.ypos = ypos
         self.sfreq = sfreq
         self.ds = ds
@@ -54,7 +56,7 @@ class RawCurveItem(PlotCurveItem):
         if self.isbad:
             self.setPen('r')
         else:
-            self.setPen('k')
+            self.setPen(self.color)
 
     def get_ds_cache(self, xmin, xmax):
         if self.ds in self.ds_cache:
@@ -698,7 +700,7 @@ class AnnotationDock(QDockWidget):
                 self.main.annot_ctrl.annotations.description[idx] = changed_description
                 ed_region.update_description(changed_description)
             self.main.annot_ctrl.descriptions = list(set([changed_description if i == current_description
-                                                 else i for i in self.main.annot_ctrl.descriptions]))
+                                                          else i for i in self.main.annot_ctrl.descriptions]))
             self.main.annot_ctrl.current_description = changed_description
             self.main.annot_ctrl.annot_color_mapping[changed_description] = \
                 self.main.annot_ctrl.annot_color_mapping.pop(current_description)
@@ -823,17 +825,20 @@ class RawPlot(PlotItem):
         self.setLabel('bottom', 'Time', 's')
 
         # Add lines
-        for ch_idx, (ch_data, ch_name) in enumerate(zip(self.main.data[:main.nchan],
-                                                        self.main.raw.ch_names[:main.nchan])):
-            self.add_line(ch_idx, ch_data, ch_name)
+        for ch_idx, (ch_data, ch_name, ch_type) in enumerate(zip(self.main.data[:main.nchan],
+                                                                 self.main.raw.ch_names[:main.nchan],
+                                                                 self.main.ch_types)):
+            self.add_line(ch_idx, ch_data, ch_name, ch_type)
 
         self.sigXRangeChanged.connect(self.xrange_changed)
         self.sigYRangeChanged.connect(self.yrange_changed)
 
-    def add_line(self, ch_idx, ch_data, ch_name):
+    def add_line(self, ch_idx, ch_data, ch_name, ch_type):
         ypos = ch_idx + 1
+        color = self.main.ch_colors[ch_type]
         ds = self._get_downsampling()
-        item = RawCurveItem(data=ch_data, times=self.main.times, ch_name=ch_name, ypos=ypos,
+        item = RawCurveItem(data=ch_data, times=self.main.times, ch_name=ch_name,
+                            ch_type=ch_type, color=color, ypos=ypos,
                             sfreq=self.main.raw.info['sfreq'], ds=ds,
                             ds_method=self.main.ds_method, ds_chunk_size=self.main.ds_chunk_size,
                             enable_ds_cache=self.main.enable_ds_cache,
@@ -845,9 +850,6 @@ class RawPlot(PlotItem):
 
         item.sigClicked.connect(self.bad_changed)
         item.range_changed(*self.getViewBox().viewRange()[0])
-
-        if self.main.enable_cache:
-            item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def remove_line(self, line):
         self.removeItem(line)
@@ -917,7 +919,8 @@ class RawPlot(PlotItem):
         add_idxs = [p - 1 for p in new_ypos if p not in [li.ypos for li in self.lines]]
         for aidx in add_idxs:
             ch_name = self.main.raw.ch_names[aidx]
-            self.add_line(aidx, self.main.data[aidx], ch_name)
+            ch_type = self.main.ch_types[aidx]
+            self.add_line(aidx, self.main.data[aidx], ch_name, ch_type)
 
     def hscroll(self, step):
         rel_step = step * self.main.duration / self.main.tsteps_per_window
@@ -1021,9 +1024,9 @@ class RawPlot(PlotItem):
 
 
 class PyQtGraphPtyp(QMainWindow):
-    def __init__(self, raw, data, times, duration=20,
+    def __init__(self, raw, data, times, ch_types, duration=20,
                  nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
-                 enable_cache=False, antialiasing=False, use_opengl=False,
+                 antialiasing=False, use_opengl=False,
                  show_annotations=True, enable_ds_cache=True,
                  tsteps_per_window=100):
         """
@@ -1037,6 +1040,8 @@ class PyQtGraphPtyp(QMainWindow):
             Scaled data in an array.
         times : np.ndarray
             Times in an array.
+        ch_types : np.ndarray
+            The channel-types in an array.
         duration : int
             The time-window to display in seconds.
         nchan : int
@@ -1051,8 +1056,6 @@ class PyQtGraphPtyp(QMainWindow):
             https://pyqtgraph.readthedocs.io/en/latest/graphicsItems/plotdataitem.html?#
         ds_chunk_size : int | None
             Chunk size for downsampling. No chunking if None (default).
-        enable_cache : bool
-            Enable DeviceCoordinateCaching for RawCurveItems.
         antialiasing : bool
             Enable Antialiasing.
         use_opengl : bool
@@ -1072,6 +1075,7 @@ class PyQtGraphPtyp(QMainWindow):
         # Invert data for display from the top (invertedY)
         self.data = data * -1
         self.times = times
+        self.ch_types = ch_types
         self.annotation_mode = False
 
         self.duration = min(duration, self.raw.n_times / self.raw.info['sfreq'])
@@ -1079,12 +1083,14 @@ class PyQtGraphPtyp(QMainWindow):
         self.ds = ds
         self.ds_method = ds_method
         self.ds_chunk_size = ds_chunk_size
-        self.enable_cache = enable_cache
         self.show_annotations = show_annotations
         self.enable_ds_cache = enable_ds_cache
         self.tsteps_per_window = tsteps_per_window
 
         self.clock_ticks = False
+        self.ch_colors = dict(mag='b', grad='#3a51ad', eeg='k', eog='k', ecg='m',
+                              emg='k', ref_meg='#1f2951', misc='k', stim='k',
+                              resp='k', chpi='k')
 
         # Create centralWidget and layout
         widget = QWidget()
