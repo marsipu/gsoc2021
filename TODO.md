@@ -15,7 +15,7 @@
 - [X] Horizontal Scrollbar
 - [X] Vertical Scrollbar
 - [ ] changing scaling
-- [ ] channel-type colors
+- [X] channel-type colors
 - [X] Annotation-Management
 - [ ] Event Lines
 - [ ] Overview-Bar
@@ -26,13 +26,19 @@
 - [X] Mark Channels (including channel-label)
 - [X] Area Selection
 
+## Features from MPL-Backend
+- [ ] Channel-Clipping
+- [ ] Applying projections
+- [ ] Group channels (group_by-parameter)
+- [ ] Butterfly-Mode
+
 ## Application Configuration
 - [ ] Entry point for application
 
 ## Performance
 - [X] Downsampling-test (with artificial peak-file, no omission of peaks)
 - [ ] Profiling/Optimizing current code (range-update, LineItem-Initialization)
-- [ ] Compare sequential line-update or direct signal-connection on xrange-change
+- [X] Compare sequential line-update or direct signal-connection on xrange-change
 - [X] Downsampling as in hdf5-example
 
 
