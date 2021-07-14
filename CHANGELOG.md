@@ -1,5 +1,6 @@
 # Week 6
 ## Wednesday, 2021-07-14
+- added tsteps_per_window and fixed related bugs
 
 
 ## Tuesday, 2021-07-13

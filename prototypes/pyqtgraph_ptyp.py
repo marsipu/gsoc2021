@@ -347,7 +347,7 @@ class RawViewBox(ViewBox):
         ev.accept()
         scroll = -1 * ev.delta() / 120
         if ev.orientation() == QtCore.Qt.Horizontal:
-            self.main.plt.hscroll(scroll)
+            self.main.plt.hscroll(scroll * 10)
         elif ev.orientation() == QtCore.Qt.Vertical:
             self.main.plt.vscroll(scroll)
 
@@ -920,7 +920,7 @@ class RawPlot(PlotItem):
             self.add_line(aidx, self.main.data[aidx], ch_name)
 
     def hscroll(self, step):
-        rel_step = self.main.duration * step / self.main.tsteps_per_window
+        rel_step = step * self.main.duration / self.main.tsteps_per_window
         # Get current range and add step to it
         xmin, xmax = [i + rel_step for i in self.vb.viewRange()[0]]
 
@@ -1025,7 +1025,7 @@ class PyQtGraphPtyp(QMainWindow):
                  nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
                  enable_cache=False, antialiasing=False, use_opengl=False,
                  show_annotations=True, enable_ds_cache=True,
-                 tsteps_per_window=1000):
+                 tsteps_per_window=100):
         """
         PyQtGraph-Prototype as a new backend for raw.plot() from MNE-Python.
 
@@ -1183,8 +1183,8 @@ class PyQtGraphPtyp(QMainWindow):
         # To preserve cross-platform consistency the following comparison
         # of the modifier-values is done.
         modhex = hex(int(event.modifiers()))
-        lil_t = self.tsteps_per_window / 100
-        big_t = self.tsteps_per_window / 10
+        lil_t = 1
+        big_t = 10
         if event.key() == QtCore.Qt.Key_Left:
             if '4' in modhex:
                 self.plt.hscroll(-lil_t)
