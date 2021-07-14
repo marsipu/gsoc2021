@@ -1,7 +1,7 @@
 # Week 6
 ## Wednesday, 2021-07-14
 - added tsteps_per_window and fixed related bugs
-
+- added channel-colors
 
 ## Tuesday, 2021-07-13
 - fix bugs for ctrl-modifier on MacOS, imports, annotations
