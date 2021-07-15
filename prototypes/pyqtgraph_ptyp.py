@@ -4,7 +4,7 @@ from functools import partial
 from itertools import cycle
 
 import numpy as np
-from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap
+from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap, QTransform
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog, QDockWidget,
                              QDoubleSpinBox, QFormLayout, QGraphicsItem, QGridLayout,
                              QHBoxLayout, QInputDialog, QLabel, QMainWindow,
@@ -803,6 +803,7 @@ class RawPlot(PlotItem):
         super().__init__(viewBox=RawViewBox(main), axisItems=self.axis_items)
 
         self.lines = list()
+        self.scale_factor = 1
 
         # Additional GraphicsItems
         self.vline = None
@@ -843,6 +844,10 @@ class RawPlot(PlotItem):
                             ds_method=self.main.ds_method, ds_chunk_size=self.main.ds_chunk_size,
                             enable_ds_cache=self.main.enable_ds_cache,
                             isbad=ch_name in self.main.raw.info['bads'])
+
+        # Apply scaling
+        transform = self._get_scale_transform()
+        item.setTransform(transform)
 
         # Add Item early to have access to viewBox
         self.addItem(item)
@@ -921,6 +926,19 @@ class RawPlot(PlotItem):
             ch_name = self.main.raw.ch_names[aidx]
             ch_type = self.main.ch_types[aidx]
             self.add_line(aidx, self.main.data[aidx], ch_name, ch_type)
+
+    def _get_scale_transform(self):
+        transform = QTransform()
+        transform.scale(1, self.scale_factor)
+
+        return transform
+
+    def scale_all(self, step):
+        self.scale_factor *= 2**step
+        transform = self._get_scale_transform()
+
+        for line in self.lines:
+            line.setTransform(transform)
 
     def hscroll(self, step):
         rel_step = step * self.main.duration / self.main.tsteps_per_window
@@ -1231,6 +1249,10 @@ class PyQtGraphPtyp(QMainWindow):
                 self.plt.change_nchan(1)
             else:
                 self.plt.change_nchan(10)
+        elif event.key() == QtCore.Qt.Key_Comma:
+            self.plt.scale_all(-1)
+        elif event.key() == QtCore.Qt.Key_Period:
+            self.plt.scale_all(1)
         elif event.key() == QtCore.Qt.Key_A:
             self.annotation_mode = not self.annotation_mode
             self.toggle_annot_mode()

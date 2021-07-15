@@ -14,12 +14,13 @@
 - [X] Vertical Scrolling (Only load shown channels in ViewBox)
 - [X] Horizontal Scrollbar
 - [X] Vertical Scrollbar
-- [ ] changing scaling
+- [X] changing scaling
 - [X] channel-type colors
 - [X] Annotation-Management
-- [ ] Event Lines
-- [ ] Overview-Bar
 - [ ] adaption to Epochs
+- [ ] Overview-Bar
+- [ ] Scale-Bars/Legends
+- [ ] Event Lines
 - [ ] Per-channel-annotation
 - [X] Zoom Duration/N-Channels
 - [X] Vertical Line
