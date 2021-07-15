@@ -1,4 +1,8 @@
 # Week 6
+## Thursday, 2021-07-15
+- worked into how to abstract existing matplotlib-backend
+- added scaling
+
 ## Wednesday, 2021-07-14
 - added tsteps_per_window and fixed related bugs
 - added channel-colors
