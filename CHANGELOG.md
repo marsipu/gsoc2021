@@ -1,4 +1,8 @@
 # Week 6
+## Friday, 2021-07-14
+- worked on touch/gesture-control
+- started with [abstract base-class](https://github.com/marsipu/mne-python/tree/rawplot_refactor)
+
 ## Thursday, 2021-07-15
 - worked into how to abstract existing matplotlib-backend
 - added scaling
