@@ -1050,11 +1050,16 @@ class BrowserView(GraphicsView):
         self.setAntialiasing(self.main.antialiasing)
         self.viewport().setAttribute(QtCore.Qt.WA_AcceptTouchEvents, True)
 
+        self.viewport().grabGesture(QtCore.Qt.PinchGesture)
+        self.viewport().grapGesture(QtCore.Qt.SwipeGesture)
+
     def viewportEvent(self, event):
         if event.type() in [QEvent.TouchBegin, QEvent.TouchUpdate,
                             QEvent.TouchEnd]:
             if event.touchPoints() == 2:
                 pass
+        elif event.type() == QEvent.Gesture:
+            print('Gesture')
         return super().viewportEvent(event)
 
 
