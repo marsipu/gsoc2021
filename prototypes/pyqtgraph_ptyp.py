@@ -1048,6 +1048,7 @@ class BrowserView(GraphicsView):
         self.main = main
         self.setCentralItem(plot)
         self.setAntialiasing(self.main.antialiasing)
+        self.viewport().setAttribute(QtCore.Qt.WA_AcceptTouchEvents, True)
 
     def viewportEvent(self, event):
         if event.type() in [QEvent.TouchBegin, QEvent.TouchUpdate,
