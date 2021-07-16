@@ -34,7 +34,7 @@
 - [ ] Butterfly-Mode
 
 ## Application Configuration
-- [ ] Entry point for application
+- [X] Entry point for application (solved with python -m [...])
 
 ## Performance
 - [X] Downsampling-test (with artificial peak-file, no omission of peaks)
@@ -47,6 +47,10 @@
 - [X] Arrow-Keys for left-right-movement
 - [X] Fix Arrow on MacOs
 - [ ] Right-Click Dragging for scaling
+- [ ] Pinching for zooming
+
+## Codestyle
+- [ ] line-width 79 characters
 
 ## Advanced Features
 - [ ] change distance between channels dynamically (up to zero==butterfly)

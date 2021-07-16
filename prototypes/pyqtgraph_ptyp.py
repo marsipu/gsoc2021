@@ -4,6 +4,7 @@ from functools import partial
 from itertools import cycle
 
 import numpy as np
+from PyQt5.QtCore import QEvent
 from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap, QTransform
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog, QDockWidget,
                              QDoubleSpinBox, QFormLayout, QGraphicsItem, QGridLayout,
@@ -1041,6 +1042,21 @@ class RawPlot(PlotItem):
         event.ignore()
 
 
+class BrowserView(GraphicsView):
+    def __init__(self, main, plot, **kwargs):
+        super().__init__(**kwargs)
+        self.main = main
+        self.setCentralItem(plot)
+        self.setAntialiasing(self.main.antialiasing)
+
+    def viewportEvent(self, event):
+        if event.type() in [QEvent.TouchBegin, QEvent.TouchUpdate,
+                            QEvent.TouchEnd]:
+            if event.touchPoints() == 2:
+                pass
+        return super().viewportEvent(event)
+
+
 class PyQtGraphPtyp(QMainWindow):
     def __init__(self, raw, data, times, ch_types, duration=20,
                  nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
@@ -1101,6 +1117,7 @@ class PyQtGraphPtyp(QMainWindow):
         self.ds = ds
         self.ds_method = ds_method
         self.ds_chunk_size = ds_chunk_size
+        self.antialiasing = antialiasing
         self.show_annotations = show_annotations
         self.enable_ds_cache = enable_ds_cache
         self.tsteps_per_window = tsteps_per_window
@@ -1115,11 +1132,9 @@ class PyQtGraphPtyp(QMainWindow):
         layout = QGridLayout()
 
         # Initialize Line-Plot
-        self.view = GraphicsView(background='w')
         self.plt = RawPlot(self)
-        self.view.setCentralItem(self.plt)
-        self.view.setAntialiasing(antialiasing)
-        self.view.useOpenGL(use_opengl)
+        self.view = BrowserView(self, self.plt, background='w',
+                                useOpenGL=use_opengl)
         layout.addWidget(self.view, 0, 0)
 
         # Initialize Scroll-Bars
@@ -1128,7 +1143,8 @@ class PyQtGraphPtyp(QMainWindow):
         layout.addWidget(self.time_bar, 1, 0)
 
         self.channel_bar = ChannelScrollBar(self)
-        self.plt.sigYRangeChanged.connect(self.channel_bar.update_value_external)
+        self.plt.sigYRangeChanged.connect(
+            self.channel_bar.update_value_external)
         layout.addWidget(self.channel_bar, 0, 1)
 
         widget.setLayout(layout)
