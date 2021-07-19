@@ -7,18 +7,16 @@ import numpy as np
 from PyQt5.QtCore import QEvent
 from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap, QTransform
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
-                             QDockWidget,
-                             QDoubleSpinBox, QFormLayout, QGraphicsItem,
-                             QGridLayout,
-                             QHBoxLayout, QInputDialog, QLabel, QMainWindow,
-                             QMessageBox, QPushButton, QScrollBar, QSizePolicy,
-                             QWidget)
+                             QDockWidget, QDoubleSpinBox, QFormLayout,
+                             QGridLayout, QHBoxLayout, QInputDialog, QLabel,
+                             QMainWindow, QMessageBox, QPushButton, QScrollBar,
+                             QSizePolicy, QWidget)
 from mne.viz.utils import _get_color_list
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
                        mkBrush, mkPen)
-from pyqtgraph.Qt import QtCore
+from pyqtgraph.Qt.QtCore import Qt, Signal
 
 
 class RawCurveItem(PlotCurveItem):
@@ -147,7 +145,7 @@ class RawCurveItem(PlotCurveItem):
 
     def mouseClickEvent(self, ev):
         if not self.clickable or ev.button() != \
-                QtCore.Qt.MouseButton.LeftButton:
+                Qt.MouseButton.LeftButton:
             ev.ignore()
             return
         if self.mouseShape().contains(ev.pos()):
@@ -236,7 +234,7 @@ class ChannelAxis(AxisItem):
 
 class TimeScrollBar(QScrollBar):
     def __init__(self, main):
-        super().__init__(QtCore.Qt.Horizontal)
+        super().__init__(Qt.Horizontal)
         self.main = main
         self.step_factor = None
 
@@ -244,7 +242,7 @@ class TimeScrollBar(QScrollBar):
         self.setSingleStep(1)
         self.setPageStep(self.main.tsteps_per_window)
         self.update_duration()
-        self.setFocusPolicy(QtCore.Qt.WheelFocus)
+        self.setFocusPolicy(Qt.WheelFocus)
         # Because valueChanged is needed (captures every input to scrollbar,
         # not just sliderMoved), there has to be made a differentiation
         # between internal and external changes.
@@ -279,14 +277,14 @@ class TimeScrollBar(QScrollBar):
 
 class ChannelScrollBar(QScrollBar):
     def __init__(self, main):
-        super().__init__(QtCore.Qt.Vertical)
+        super().__init__(Qt.Vertical)
         self.main = main
 
         self.setMinimum(0)
         self.setMaximum(self.main.plt.ymax - self.main.nchan - 1)
         self.update_nchan()
         self.setSingleStep(1)
-        self.setFocusPolicy(QtCore.Qt.WheelFocus)
+        self.setFocusPolicy(Qt.WheelFocus)
         # Because valueChanged is needed (captures every input to scrollbar,
         # not just sliderMoved), there has to be made a differentiation
         # between internal and external changes.
@@ -327,7 +325,7 @@ class RawViewBox(ViewBox):
     def mouseDragEvent(self, event, axis=None):
         event.accept()
 
-        if event.button() == QtCore.Qt.LeftButton \
+        if event.button() == Qt.LeftButton \
                 and self.main.annotation_mode \
                 and self.main.current_description:
             description = self.main.current_description
@@ -349,7 +347,7 @@ class RawViewBox(ViewBox):
                 onset = min(self._drag_start, drag_stop)
                 duration = abs(self._drag_start - drag_stop)
                 self.main.add_annotation(onset, duration,
-                                         self._drag_region)
+                                         region=self._drag_region)
             else:
                 self._drag_region.setRegion((self._drag_start,
                                              self.mapSceneToView(
@@ -358,23 +356,20 @@ class RawViewBox(ViewBox):
             QMessageBox.warning(self.main, 'No description!',
                                 'No description is given, add one!')
 
-    # else:
-    #     super().mouseDragEvent(event, axis)
-
     def mouseClickEvent(self, event):
         # If we want the context-menu back, uncomment following line
         # super().mouseClickEvent(event)
-        if event.button() == QtCore.Qt.LeftButton:
+        if event.button() == Qt.LeftButton:
             self.main.plt.add_vline(self.mapSceneToView(event.scenePos()).x())
-        elif event.button() == QtCore.Qt.RightButton:
+        elif event.button() == Qt.RightButton:
             self.main.plt.remove_vline()
 
     def wheelEvent(self, ev, axis=None):
         ev.accept()
         scroll = -1 * ev.delta() / 120
-        if ev.orientation() == QtCore.Qt.Horizontal:
+        if ev.orientation() == Qt.Horizontal:
             self.main.plt.hscroll(scroll * 10)
-        elif ev.orientation() == QtCore.Qt.Vertical:
+        elif ev.orientation() == Qt.Vertical:
             self.main.plt.vscroll(scroll)
 
 
@@ -385,7 +380,7 @@ class VLineLabel(InfLineLabel):
         self.vline = vline
 
     def mouseDragEvent(self, ev):
-        if self.movable and ev.button() == QtCore.Qt.LeftButton:
+        if self.movable and ev.button() == Qt.LeftButton:
             if ev.isStart():
                 self.vline.moving = True
                 self.cursorOffset = self.vline.pos() - \
@@ -426,9 +421,9 @@ class HelpDialog(QDialog):
 
 
 class AnnotRegion(LinearRegionItem):
-    regionChangeFinished = QtCore.Signal(object)
-    gotSelected = QtCore.Signal(object)
-    removeRequested = QtCore.Signal(object)
+    regionChangeFinished = Signal(object)
+    gotSelected = Signal(object)
+    removeRequested = Signal(object)
 
     def __init__(self, description, values, color, time_decimals):
 
@@ -498,9 +493,9 @@ class AnnotRegion(LinearRegionItem):
 
     def mouseClickEvent(self, event):
         event.accept()
-        if event.button() == QtCore.Qt.LeftButton and self.movable:
+        if event.button() == Qt.LeftButton and self.movable:
             self.select(True)
-        elif event.button() == QtCore.Qt.RightButton and self.movable:
+        elif event.button() == Qt.RightButton and self.movable:
             self.remove()
 
     def change_label_pos(self):
@@ -520,7 +515,7 @@ class AnnotationDock(QDockWidget):
     def init_ui(self):
         widget = QWidget()
         layout = QHBoxLayout()
-        layout.setAlignment(QtCore.Qt.AlignLeft)
+        layout.setAlignment(Qt.AlignLeft)
 
         self.description_cmbx = QComboBox()
         self.description_cmbx.setSizeAdjustPolicy(QComboBox.AdjustToContents)
@@ -954,10 +949,10 @@ class BrowserView(GraphicsView):
         self.main = main
         self.setCentralItem(plot)
         self.setAntialiasing(self.main.antialiasing)
-        self.viewport().setAttribute(QtCore.Qt.WA_AcceptTouchEvents, True)
+        self.viewport().setAttribute(Qt.WA_AcceptTouchEvents, True)
 
-        self.viewport().grabGesture(QtCore.Qt.PinchGesture)
-        self.viewport().grabGesture(QtCore.Qt.SwipeGesture)
+        self.viewport().grabGesture(Qt.PinchGesture)
+        self.viewport().grabGesture(Qt.SwipeGesture)
 
     def viewportEvent(self, event):
         if event.type() in [QEvent.TouchBegin, QEvent.TouchUpdate,
@@ -1024,7 +1019,7 @@ class PyQtGraphPtyp(QMainWindow):
         self.data = data * -1
         self.times = times
         self.first_time = raw.first_time
-        self.time_decimals = int(np.ceil(-np.log10(raw.info['sfreq'])))
+        self.time_decimals = int(np.ceil(np.log10(raw.info['sfreq'])))
 
         self.ch_types = ch_types
         self.annotation_mode = False
@@ -1082,7 +1077,7 @@ class PyQtGraphPtyp(QMainWindow):
 
         # Initialize Annotation-Dock
         self.annot_dock = AnnotationDock(self)
-        self.addDockWidget(QtCore.Qt.TopDockWidgetArea, self.annot_dock)
+        self.addDockWidget(Qt.TopDockWidgetArea, self.annot_dock)
         self.annot_dock.setVisible(False)
 
         # Initialize other widgets associated to annoations.
@@ -1117,6 +1112,10 @@ class PyQtGraphPtyp(QMainWindow):
         aincr_nchan = QAction('+Channels', parent=self)
         aincr_nchan.triggered.connect(partial(self.plt.change_nchan, 10))
         self.toolbar.addAction(aincr_nchan)
+
+        atoggle_annot = QAction('Toggle Annotations', parent=self)
+        atoggle_annot.triggered.connect(self.toggle_annotation_mode)
+        self.toolbar.addAction(atoggle_annot)
 
         ahelp = QAction('Help', parent=self)
         ahelp.triggered.connect(partial(HelpDialog, self))
@@ -1279,6 +1278,10 @@ class PyQtGraphPtyp(QMainWindow):
             # Show label for Annotation-Mode.
             self.plt.toggle_annot_hint(self.annotation_mode)
 
+    def toggle_annotation_mode(self):
+        self.annotation_mode = not self.annotation_mode
+        self.change_annot_mode()
+
     def keyPressEvent(self, event):
         # On MacOs additionally KeypadModifier is set when arrow-keys
         # are pressed.
@@ -1288,53 +1291,52 @@ class PyQtGraphPtyp(QMainWindow):
         modhex = hex(int(event.modifiers()))
         lil_t = 1
         big_t = 10
-        if event.key() == QtCore.Qt.Key_Left:
+        if event.key() == Qt.Key_Left:
             if '4' in modhex:
                 self.plt.hscroll(-lil_t)
             else:
                 self.plt.hscroll(-big_t)
-        elif event.key() == QtCore.Qt.Key_Right:
+        elif event.key() == Qt.Key_Right:
             if '4' in modhex:
                 self.plt.hscroll(lil_t)
             else:
                 self.plt.hscroll(big_t)
-        elif event.key() == QtCore.Qt.Key_Up:
+        elif event.key() == Qt.Key_Up:
             if '4' in modhex:
                 self.plt.vscroll(-1)
             else:
                 self.plt.vscroll(-10)
-        elif event.key() == QtCore.Qt.Key_Down:
+        elif event.key() == Qt.Key_Down:
             if '4' in modhex:
                 self.plt.vscroll(1)
             else:
                 self.plt.vscroll(10)
-        elif event.key() == QtCore.Qt.Key_Home:
+        elif event.key() == Qt.Key_Home:
             if '4' in modhex:
                 self.plt.change_duration(-lil_t)
             else:
                 self.plt.change_duration(-big_t)
-        elif event.key() == QtCore.Qt.Key_End:
+        elif event.key() == Qt.Key_End:
             if '4' in modhex:
                 self.plt.change_duration(lil_t)
             else:
                 self.plt.change_duration(big_t)
-        elif event.key() == QtCore.Qt.Key_PageDown:
+        elif event.key() == Qt.Key_PageDown:
             if '4' in modhex:
                 self.plt.change_nchan(-1)
             else:
                 self.plt.change_nchan(-10)
-        elif event.key() == QtCore.Qt.Key_PageUp:
+        elif event.key() == Qt.Key_PageUp:
             if '4' in modhex:
                 self.plt.change_nchan(1)
             else:
                 self.plt.change_nchan(10)
-        elif event.key() == QtCore.Qt.Key_Comma:
+        elif event.key() == Qt.Key_Comma:
             self.plt.scale_all(-1)
-        elif event.key() == QtCore.Qt.Key_Period:
+        elif event.key() == Qt.Key_Period:
             self.plt.scale_all(1)
-        elif event.key() == QtCore.Qt.Key_A:
-            self.annotation_mode = not self.annotation_mode
-            self.change_annot_mode()
-        elif event.key() == QtCore.Qt.Key_T:
+        elif event.key() == Qt.Key_A:
+            self.toggle_annotation_mode()
+        elif event.key() == Qt.Key_T:
             self.clock_ticks = not self.clock_ticks
             self.plt.axis_items['bottom'].refresh()
