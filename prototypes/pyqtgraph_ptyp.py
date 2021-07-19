@@ -957,7 +957,7 @@ class BrowserView(GraphicsView):
         self.viewport().setAttribute(QtCore.Qt.WA_AcceptTouchEvents, True)
 
         self.viewport().grabGesture(QtCore.Qt.PinchGesture)
-        self.viewport().grapGesture(QtCore.Qt.SwipeGesture)
+        self.viewport().grabGesture(QtCore.Qt.SwipeGesture)
 
     def viewportEvent(self, event):
         if event.type() in [QEvent.TouchBegin, QEvent.TouchUpdate,
