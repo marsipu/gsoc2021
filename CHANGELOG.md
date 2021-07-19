@@ -1,3 +1,9 @@
+# Week 7
+## Monday, 2021-07-15
+- refactored pyqtgraph-prototype to fit better into envisioned 
+  MNEDataBrowser-MetaClass
+- removed Annoation-Controller (too verbose)
+
 # Week 6
 ## Friday, 2021-07-14
 - worked on touch/gesture-control
