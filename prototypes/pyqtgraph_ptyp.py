@@ -326,35 +326,35 @@ class RawViewBox(ViewBox):
         event.accept()
 
         if event.button() == Qt.LeftButton \
-                and self.main.annotation_mode \
-                and self.main.current_description:
-            description = self.main.current_description
-            if event.isStart():
-                self._drag_start = self.mapSceneToView(
-                    event.scenePos()).x()
-                self._drag_region = AnnotRegion(description=description,
-                                                values=(self._drag_start,
-                                                        self._drag_start),
-                                                color=self.main.get_color(
-                                                    description),
-                                                time_decimals=
-                                                self.main.time_decimals)
-                self.main.plt.addItem(self._drag_region)
-                self.main.plt.addItem(self._drag_region.label_item)
+                and self.main.annotation_mode:
+            if self.main.current_description:
+                description = self.main.current_description
+                if event.isStart():
+                    self._drag_start = self.mapSceneToView(
+                        event.scenePos()).x()
+                    self._drag_region = AnnotRegion(description=description,
+                                                    values=(self._drag_start,
+                                                            self._drag_start),
+                                                    color=self.main.get_color(
+                                                        description),
+                                                    time_decimals=
+                                                    self.main.time_decimals)
+                    self.main.plt.addItem(self._drag_region)
+                    self.main.plt.addItem(self._drag_region.label_item)
+                elif event.isFinish():
+                    drag_stop = self.mapSceneToView(event.scenePos()).x()
+                    self._drag_region.setRegion((self._drag_start, drag_stop))
+                    onset = min(self._drag_start, drag_stop)
+                    duration = abs(self._drag_start - drag_stop)
+                    self.main.add_annotation(onset, duration,
+                                             region=self._drag_region)
+                else:
+                    self._drag_region.setRegion((self._drag_start,
+                                                 self.mapSceneToView(
+                                                     event.scenePos()).x()))
             elif event.isFinish():
-                drag_stop = self.mapSceneToView(event.scenePos()).x()
-                self._drag_region.setRegion((self._drag_start, drag_stop))
-                onset = min(self._drag_start, drag_stop)
-                duration = abs(self._drag_start - drag_stop)
-                self.main.add_annotation(onset, duration,
-                                         region=self._drag_region)
-            else:
-                self._drag_region.setRegion((self._drag_start,
-                                             self.mapSceneToView(
-                                                 event.scenePos()).x()))
-        elif event.isFinish():
-            QMessageBox.warning(self.main, 'No description!',
-                                'No description is given, add one!')
+                QMessageBox.warning(self.main, 'No description!',
+                                    'No description is given, add one!')
 
     def mouseClickEvent(self, event):
         # If we want the context-menu back, uncomment following line
