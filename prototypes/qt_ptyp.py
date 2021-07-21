@@ -110,7 +110,7 @@ class PyQtPlot(QGraphicsView):
 
         self.scene = QGraphicsScene()
         self.setScene(self.scene)
-        # self.setSceneRect(QRectF(0, 0, duration, nchan))
+        # self.setSceneRect(QRectF(0, 0, duration, n_channels))
         self.fitInView(self.scene.itemsBoundingRect())
 
         for ch_idx, (ch_data, ch_name) in enumerate(zip(self.data[:self.nchan],

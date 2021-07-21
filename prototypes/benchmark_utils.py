@@ -523,7 +523,7 @@ class BenchmarkWindow(QMainWindow):
         self.load_backend()
 
     def mpl_plot(self):
-        fig = self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['nchan'])
+        fig = self.raw.plot(duration=self.backend_kwargs['duration'], n_channels=self.backend_kwargs['n_channels'])
         fig.canvas.mpl_connect('close_event', self.save_raw)
 
     def showEvent(self, event):

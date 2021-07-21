@@ -1,7 +1,6 @@
 # Add requirements not contained in standard MNE-Python-Installation
-pyqtgraph
-# Until https://github.com/pyqtgraph/pyqtgraph/issues/1760 could be fixed this is a workaround to make OpenGL work on Windows
-pyqtgraph==0.11.1; platform_system == 'Windows'
+# The newest development version fixes the openGL-issue on windows.
+pip install git+https://github.com/pyqtgraph/pyqtgraph@master
 pyopengl
 vispy
 PythonQwt

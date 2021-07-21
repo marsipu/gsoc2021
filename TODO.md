@@ -41,7 +41,7 @@
 - [ ] Profiling/Optimizing current code (range-update, LineItem-Initialization)
 - [X] Compare sequential line-update or direct signal-connection on xrange-change
 - [X] Downsampling as in hdf5-example
-
+- [ ] Use numba (and other ideas as suggested in [#1478](https://github.com/pyqtgraph/pyqtgraph/issues/1478) from pyqtgraph)
 
 ## User Interaction
 - [X] Arrow-Keys for left-right-movement

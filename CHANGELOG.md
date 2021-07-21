@@ -1,4 +1,11 @@
 # Week 7
+## Wednesday, 2021-07-17
+- continued work on MNE-Python integration
+
+## Tuesday, 2021-07-16
+- prepared preliminal integration of PyQtGraph-Prototype into MNE-Python
+  to make feature integration as Epochs etc. easier
+
 ## Monday, 2021-07-15
 - refactored pyqtgraph-prototype to fit better into envisioned 
   MNEDataBrowser-MetaClass

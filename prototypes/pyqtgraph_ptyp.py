@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
                              QGridLayout, QHBoxLayout, QInputDialog, QLabel,
                              QMainWindow, QMessageBox, QPushButton, QScrollBar,
                              QSizePolicy, QWidget)
+from mne.utils import logger
+from mne.viz._browser import BrowserBase
 from mne.viz.utils import _get_color_list
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
@@ -172,8 +174,8 @@ class TimeAxis(AxisItem):
     def tickStrings(self, values, scale, spacing):
 
         if self.main.clock_ticks:
-            meas_date = self.main.raw.info['meas_date']
-            first_time = datetime.timedelta(seconds=self.main.raw.first_time)
+            meas_date = self.main.inst.info['meas_date']
+            first_time = datetime.timedelta(seconds=self.main.inst.first_time)
             digits = np.ceil(-np.log10(spacing) + 1).astype(int)
             tick_strings = list()
             for val in values:
@@ -210,14 +212,14 @@ class ChannelAxis(AxisItem):
         if not isinstance(values, list):
             values = [values]
         # Get channel-names
-        tick_strings = [self.main.raw.ch_names[v - 1] for v in values]
+        tick_strings = [self.main.inst.ch_names[v - 1] for v in values]
 
         return tick_strings
 
     def drawPicture(self, p, axisSpec, tickSpecs, textSpecs):
         super().drawPicture(p, axisSpec, tickSpecs, textSpecs)
         for rect, flags, text in textSpecs:
-            if text in self.main.raw.info['bads']:
+            if text in self.main.inst.info['bads']:
                 p.setPen(functions.mkPen('r'))
             else:
                 p.setPen(functions.mkPen('k'))
@@ -290,7 +292,7 @@ class ChannelScrollBar(QScrollBar):
         self.main = main
 
         self.setMinimum(0)
-        self.setMaximum(self.main.plt.ymax - self.main.nchan - 1)
+        self.setMaximum(self.main.plt.ymax - self.main.n_channels - 1)
         self.update_nchan()
         self.setSingleStep(1)
         self.setFocusPolicy(Qt.WheelFocus)
@@ -302,7 +304,7 @@ class ChannelScrollBar(QScrollBar):
 
     def channel_changed(self, value):
         new_ymin = value
-        new_ymax = value + self.main.nchan + 1
+        new_ymax = value + self.main.n_channels + 1
         if not self.external_change:
             self.main.plt.setYRange(new_ymin, new_ymax, padding=0)
 
@@ -315,8 +317,8 @@ class ChannelScrollBar(QScrollBar):
         self.update_nchan()
 
     def update_nchan(self):
-        self.setPageStep(self.main.nchan)
-        self.setMaximum(self.main.plt.ymax - self.main.nchan - 1)
+        self.setPageStep(self.main.n_channels)
+        self.setMaximum(self.main.plt.ymax - self.main.n_channels - 1)
 
     def keyPressEvent(self, event):
         # Let main handle the keypress
@@ -605,7 +607,7 @@ class AnnotationDock(QDockWidget):
 
     def remove_description(self):
         rm_description = self.description_cmbx.currentText()
-        existing_annot = list(self.main.raw.annotations.description).count(
+        existing_annot = list(self.main.inst.annotations.description).count(
             rm_description)
         if existing_annot > 0:
             ans = QMessageBox.question(self,
@@ -617,9 +619,9 @@ class AnnotationDock(QDockWidget):
                                        f'Do you really want to remove them?')
             if ans == QMessageBox.Yes:
                 rm_idxs = np.where(
-                    self.main.raw.annotations.description == rm_description)
+                    self.main.inst.annotations.description == rm_description)
                 for idx in rm_idxs:
-                    self.main.raw.annotations.delete(idx)
+                    self.main.inst.annotations.delete(idx)
                 for rm_region in [r for r in self.main.regions
                                   if r.description == rm_description]:
                     rm_region.remove()
@@ -724,15 +726,15 @@ class RawPlot(PlotItem):
         # Add one empty line as padding at top and bottom
         self.ymax = main.data.shape[0] + 1
         self.setXRange(0, main.duration, padding=0)
-        self.setYRange(0, main.nchan + 1, padding=0)
+        self.setYRange(0, main.n_channels + 1, padding=0)
         self.setLimits(xMin=0, xMax=self.xmax,
                        yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
 
         # Add lines
         for ch_idx, (ch_data, ch_name, ch_type) in enumerate(
-                zip(self.main.data[:main.nchan],
-                    self.main.raw.ch_names[:main.nchan],
+                zip(self.main.data[:main.n_channels],
+                    self.main.inst.ch_names[:main.n_channels],
                     self.main.ch_types)):
             self.add_line(ch_idx, ch_data, ch_name, ch_type)
 
@@ -746,12 +748,12 @@ class RawPlot(PlotItem):
         item = RawCurveItem(data=ch_data, times=self.main.times,
                             ch_name=ch_name,
                             ch_type=ch_type, color=color, ypos=ypos,
-                            sfreq=self.main.raw.info['sfreq'], ds=ds,
+                            sfreq=self.main.inst.info['sfreq'], ds=ds,
                             ds_method=self.main.ds_method,
                             ds_chunk_size=self.main.ds_chunk_size,
                             enable_ds_cache=self.main.enable_ds_cache,
-                            check_nan = self.main.check_nan,
-                            isbad=ch_name in self.main.raw.info['bads'])
+                            check_nan=self.main.check_nan,
+                            isbad=ch_name in self.main.inst.info['bads'])
 
         # Apply scaling
         transform = self._get_scale_transform()
@@ -769,12 +771,12 @@ class RawPlot(PlotItem):
         self.lines.remove(line)
 
     def addrm_bad_channel(self, line, add=True):
-        if add and line.ch_name not in self.main.raw.info['bads']:
-            self.main.raw.info['bads'].append(line.ch_name)
+        if add and line.ch_name not in self.main.inst.info['bads']:
+            self.main.inst.info['bads'].append(line.ch_name)
             line.isbad = True
             print(f'{line.ch_name} added to bad channels!')
-        elif line.ch_name in self.main.raw.info['bads']:
-            self.main.raw.info['bads'].remove(line.ch_name)
+        elif line.ch_name in self.main.inst.info['bads']:
+            self.main.inst.info['bads'].remove(line.ch_name)
             line.isbad = False
             print(f'{line.ch_name} removed from bad channels!')
 
@@ -805,7 +807,7 @@ class RawPlot(PlotItem):
                     x1 = view_range.right() / dx
                     width = self.getViewBox().width()
                     if width != 0.0:
-                        # Auto-Downsampling with 3 samples per pixel
+                        # Auto-Downsampling with 5 samples per pixel
                         ds = int(max(1, (x1 - x0) / (width * 5)))
 
         return ds
@@ -833,7 +835,7 @@ class RawPlot(PlotItem):
         add_idxs = [p - 1 for p in new_ypos if
                     p not in [li.ypos for li in self.lines]]
         for aidx in add_idxs:
-            ch_name = self.main.raw.ch_names[aidx]
+            ch_name = self.main.inst.ch_names[aidx]
             ch_type = self.main.ch_types[aidx]
             self.add_line(aidx, self.main.data[aidx], ch_name, ch_type)
 
@@ -878,10 +880,10 @@ class RawPlot(PlotItem):
 
         if ymin < 0:
             ymin = 0
-            ymax = self.main.nchan + 1
+            ymax = self.main.n_channels + 1
         elif ymax > self.ymax:
             ymax = self.ymax
-            ymin = ymax - self.main.nchan - 1
+            ymin = ymax - self.main.n_channels - 1
 
         self.setYRange(ymin, ymax, padding=0)
 
@@ -922,7 +924,7 @@ class RawPlot(PlotItem):
         if ymax - ymin <= 2:
             ymax = ymin + 2
 
-        self.main.nchan = ymax - ymin - 1
+        self.main.n_channels = ymax - ymin - 1
 
         self.setYRange(ymin, ymax, padding=0)
 
@@ -974,19 +976,19 @@ class BrowserView(GraphicsView):
         return super().viewportEvent(event)
 
 
-class PyQtGraphPtyp(QMainWindow):
-    def __init__(self, raw, data, times, ch_types, duration=20,
-                 nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
-                 antialiasing=False, use_opengl=False,
+class PyQtGraphPtyp(QMainWindow, BrowserBase):
+    def __init__(self, inst, data, times, ch_types, duration=20,
+                 n_channels=30, ds='auto', ds_method='peak', ds_chunk_size=None,
+                 antialiasing=False, use_opengl=True,
                  show_annotations=True, enable_ds_cache=True,
-                 tsteps_per_window=100, check_nan=False):
+                 tsteps_per_window=100, check_nan=False, **kwargs):
         """
-        PyQtGraph-Prototype as a new backend for raw.plot() from MNE-Python.
+        PyQtGraph-Prototype as a new backend for inst.plot() from MNE-Python.
 
         Parameters
         ----------
-        raw : mne.io.Raw
-            The Raw-object.
+        inst : mne.io.Raw
+            The Data-Instance (Raw, Epochs
         data : np.ndarray
             Scaled data in an array.
         times : np.ndarray
@@ -995,7 +997,7 @@ class PyQtGraphPtyp(QMainWindow):
             The channel-types in an array.
         duration : int
             The time-window to display in seconds.
-        nchan : int
+        n_channels : int
             The number of channels to display in the window simultaneously.
         ds : int | str
             The downsampling-factor. Either 'auto' to get the downsampling-rate
@@ -1010,7 +1012,7 @@ class PyQtGraphPtyp(QMainWindow):
         antialiasing : bool
             Enable Antialiasing.
         use_opengl : bool
-            Use OpenGL (seems to just work on Linux for now).
+            Use OpenGL.
         show_annotations : bool
             Wether to show annotations (may impact performance in benchmarks).
         enable_ds_cache : bool
@@ -1022,21 +1024,23 @@ class PyQtGraphPtyp(QMainWindow):
         check_nan : bool
             If to check for NaN-values.
         """
-        super().__init__()
+        QMainWindow.__init__(self)
+        BrowserBase.__init__(self, **kwargs)
 
         # Initialize Attributes
-        self.raw = raw
+        self.inst = inst
         self.data = data
+        # ToDo: Change to ypos being -ch_idx
         # Invert data for display from the top (invertedY)
         self.data = data * -1
         self.times = times
-        self.first_time = raw.first_time
-        self.time_decimals = int(np.ceil(np.log10(raw.info['sfreq'])))
+        self.first_time = inst.first_time
+        self.time_decimals = int(np.ceil(np.log10(inst.info['sfreq'])))
 
         self.ch_types = ch_types
         self.annotation_mode = False
-        self.annotations = raw.annotations
-        self.descriptions = list(set(raw.annotations.description))
+        self.annotations = inst.annotations
+        self.descriptions = list(set(inst.annotations.description))
         if len(self.descriptions) > 0:
             self.current_description = self.descriptions[0]
         else:
@@ -1048,8 +1052,8 @@ class PyQtGraphPtyp(QMainWindow):
         self.regions = list()
 
         self.duration = min(duration,
-                            self.raw.n_times / self.raw.info['sfreq'])
-        self.nchan = min(nchan, len(self.raw.ch_names))
+                            self.inst.n_times / self.inst.info['sfreq'])
+        self.n_channels = min(n_channels, len(self.inst.ch_names))
         self.ds = ds
         self.ds_method = ds_method
         self.ds_chunk_size = ds_chunk_size
@@ -1071,6 +1075,17 @@ class PyQtGraphPtyp(QMainWindow):
 
         # Initialize Line-Plot
         self.plt = RawPlot(self)
+
+        # Check for OpenGL
+        try:
+            import OpenGL
+        except ModuleNotFoundError:
+            logger.warning('pyopengl was not found on this device.\n'
+                           'Defaulting to plot without OpenGL with reduced '
+                           'performance.')
+            use_opengl = False
+
+        # Initialize BrowserView (inherits QGraphicsView)
         self.view = BrowserView(self, self.plt, background='w',
                                 useOpenGL=use_opengl)
         layout.addWidget(self.view, 0, 0)
