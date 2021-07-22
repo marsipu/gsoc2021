@@ -1,4 +1,8 @@
 # Week 7
+## Thursday, 2021-07-18
+- continued work on refactoring backend-independent parts of MPL-Class into 
+  BrowserBase
+
 ## Wednesday, 2021-07-17
 - continued work on MNE-Python integration
 

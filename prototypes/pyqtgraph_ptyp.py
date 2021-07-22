@@ -22,13 +22,15 @@ from pyqtgraph.Qt.QtCore import Qt, Signal
 
 
 class RawCurveItem(PlotCurveItem):
-    def __init__(self, data, times, ch_name, ch_type, color, ypos, sfreq,
+    def __init__(self, data, times, ch_name, ch_idx, ch_type, color, ypos,
+                 sfreq,
                  ds, ds_method, ds_chunk_size, enable_ds_cache, check_nan,
                  isbad):
         super().__init__(clickable=True)
         self._data = data
         self._times = times
         self.ch_name = ch_name
+        self.ch_idx = ch_idx
         self.ch_type = ch_type
         self.color = color
         self.ypos = ypos
@@ -226,6 +228,10 @@ class ChannelAxis(AxisItem):
             self.ch_texts[text] = (rect.top(), rect.top() + rect.height())
             p.drawText(rect, int(flags), text)
 
+    def redraw(self):
+        self.picture = None
+        self.update()
+
     def mouseClickEvent(self, event):
         # Clean up channel-texts
         self.ch_texts = {k: v for k, v in self.ch_texts.items()
@@ -239,7 +245,7 @@ class ChannelAxis(AxisItem):
             print(f'{ch_name} clicked!')
             line = [li for li in self.main.plt.lines
                     if li.ch_name == ch_name][0]
-            self.main.plt.addrm_bad_channel(line)
+            self.main.plt._toggle_bad_channel(line)
         # return super().mouseClickEvent(event)
 
 
@@ -703,6 +709,7 @@ class AnnotationDock(QDockWidget):
 class RawPlot(PlotItem):
     def __init__(self, main):
         self.main = main
+        # ToDo: Somehow move Axes to main-attributes to for accessibility?
         self.axis_items = {'bottom': TimeAxis(main),
                            'left': ChannelAxis(main)}
         super().__init__(viewBox=RawViewBox(main), axisItems=self.axis_items)
@@ -746,7 +753,7 @@ class RawPlot(PlotItem):
         color = self.main.ch_colors[ch_type]
         ds = self._get_downsampling()
         item = RawCurveItem(data=ch_data, times=self.main.times,
-                            ch_name=ch_name,
+                            ch_name=ch_name, ch_idx=ch_idx,
                             ch_type=ch_type, color=color, ypos=ypos,
                             sfreq=self.main.inst.info['sfreq'], ds=ds,
                             ds_method=self.main.ds_method,
@@ -770,25 +777,8 @@ class RawPlot(PlotItem):
         self.removeItem(line)
         self.lines.remove(line)
 
-    def addrm_bad_channel(self, line, add=True):
-        if add and line.ch_name not in self.main.inst.info['bads']:
-            self.main.inst.info['bads'].append(line.ch_name)
-            line.isbad = True
-            print(f'{line.ch_name} added to bad channels!')
-        elif line.ch_name in self.main.inst.info['bads']:
-            self.main.inst.info['bads'].remove(line.ch_name)
-            line.isbad = False
-            print(f'{line.ch_name} removed from bad channels!')
-
-        # Update line color
-        line.update_bad_color()
-
-        # Update Channel-Axis
-        self.axes['left']['item'].picture = None
-        self.axes['left']['item'].update()
-
     def bad_changed(self, line, ev):
-        self.addrm_bad_channel(line, add=line.isbad)
+        self._toggle_bad_channel(line, add=line.isbad)
 
     def _get_downsampling(self):
         # Auto-Downsampling from pyqtgraph
@@ -1173,6 +1163,19 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase):
             ('a', 'Toggle annotation-mode'),
             ('t', 'Toggle time format')
         ]
+
+    def _toggle_bad_channel(self, line):
+        color, pick, marked_bad = super()._toggle_bad_channel(line.ch_idx)
+        line.isbad = marked_bad
+
+        # Update line color
+        line.update_bad_color(color)
+
+        # Update Channel-Axis
+        self.plt.axes['left']['item'].redraw()
+
+        self._update_projector()
+        self.plt.redraw_lines()
 
     def get_color(self, description):
         # As in matplotlib-backend
