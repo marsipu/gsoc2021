@@ -245,7 +245,7 @@ class ChannelAxis(AxisItem):
             print(f'{ch_name} clicked!')
             line = [li for li in self.main.plt.lines
                     if li.ch_name == ch_name][0]
-            self.main.plt._toggle_bad_channel(line)
+            self.main._toggle_bad_channel(line)
         # return super().mouseClickEvent(event)
 
 
@@ -770,15 +770,13 @@ class RawPlot(PlotItem):
         self.addItem(item)
         self.lines.append(item)
 
-        item.sigClicked.connect(self.bad_changed)
+        item.sigClicked.connect(lambda line, _:
+                                self.main.toggle_bad_channel(line))
         item.range_changed(*self.getViewBox().viewRange()[0])
 
     def remove_line(self, line):
         self.removeItem(line)
         self.lines.remove(line)
-
-    def bad_changed(self, line, ev):
-        self._toggle_bad_channel(line, add=line.isbad)
 
     def _get_downsampling(self):
         # Auto-Downsampling from pyqtgraph
@@ -1163,19 +1161,6 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase):
             ('a', 'Toggle annotation-mode'),
             ('t', 'Toggle time format')
         ]
-
-    def _toggle_bad_channel(self, line):
-        color, pick, marked_bad = super()._toggle_bad_channel(line.ch_idx)
-        line.isbad = marked_bad
-
-        # Update line color
-        line.update_bad_color(color)
-
-        # Update Channel-Axis
-        self.plt.axes['left']['item'].redraw()
-
-        self._update_projector()
-        self.plt.redraw_lines()
 
     def get_color(self, description):
         # As in matplotlib-backend
