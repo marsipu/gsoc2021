@@ -1,4 +1,8 @@
 # Week 7
+## Friday, 2021-07-19
+- worked on adaption of pyqtgraph-prototype to BrowserBase
+- nothing else due to some unscheduled events.
+
 ## Thursday, 2021-07-18
 - continued work on refactoring backend-independent parts of MPL-Class into 
   BrowserBase
