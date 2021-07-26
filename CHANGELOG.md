@@ -1,26 +1,33 @@
+# Week 8
+## Monday, 2021-07-26
+- opened issue and PR for pyqtgraph
+- added check_nan as parameter to test influence of performance of the 
+  parameters connect and SkipFiniteCheck in setData
+- refreshed knowledge about fixtures and generators
+
 # Week 7
-## Friday, 2021-07-19
+## Friday, 2021-07-23
 - worked on adaption of pyqtgraph-prototype to BrowserBase
 - nothing else due to some unscheduled events.
 
-## Thursday, 2021-07-18
+## Thursday, 2021-07-22
 - continued work on refactoring backend-independent parts of MPL-Class into 
   BrowserBase
 
-## Wednesday, 2021-07-17
+## Wednesday, 2021-07-21
 - continued work on MNE-Python integration
 
-## Tuesday, 2021-07-16
+## Tuesday, 2021-07-20
 - prepared preliminal integration of PyQtGraph-Prototype into MNE-Python
   to make feature integration as Epochs etc. easier
 
-## Monday, 2021-07-15
+## Monday, 2021-07-19
 - refactored pyqtgraph-prototype to fit better into envisioned 
   MNEDataBrowser-MetaClass
 - removed Annoation-Controller (too verbose)
 
 # Week 6
-## Friday, 2021-07-14
+## Friday, 2021-07-16
 - worked on touch/gesture-control
 - started with [abstract base-class](https://github.com/marsipu/mne-python/tree/rawplot_refactor)
 
