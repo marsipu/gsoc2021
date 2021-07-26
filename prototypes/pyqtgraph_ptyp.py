@@ -979,7 +979,7 @@ class PyQtGraphPtyp(QMainWindow):
                  nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
                  antialiasing=False, use_opengl=False,
                  show_annotations=True, enable_ds_cache=True,
-                 tsteps_per_window=100, check_nan=True):
+                 tsteps_per_window=100, check_nan=False):
         """
         PyQtGraph-Prototype as a new backend for raw.plot() from MNE-Python.
 
