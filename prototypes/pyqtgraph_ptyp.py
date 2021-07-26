@@ -21,7 +21,8 @@ from pyqtgraph.Qt.QtCore import Qt, Signal
 
 class RawCurveItem(PlotCurveItem):
     def __init__(self, data, times, ch_name, ch_type, color, ypos, sfreq,
-                 ds, ds_method, ds_chunk_size, enable_ds_cache, isbad):
+                 ds, ds_method, ds_chunk_size, enable_ds_cache, check_nan,
+                 isbad):
         super().__init__(clickable=True)
         self._data = data
         self._times = times
@@ -34,6 +35,7 @@ class RawCurveItem(PlotCurveItem):
         self.ds_method = ds_method
         self.ds_chunk_size = ds_chunk_size
         self.enable_ds_cache = enable_ds_cache
+        self.check_nan = check_nan
         self.isbad = isbad
         self.update_bad_color()
 
@@ -140,7 +142,14 @@ class RawCurveItem(PlotCurveItem):
             x = visible_x
             y = visible_y
 
-        self.setData(x, y)
+        if self.check_nan:
+            connect = 'finite'
+            skip = False
+        else:
+            connect = 'all'
+            skip = True
+
+        self.setData(x, y, connect=connect, skipFiniteCheck=skip)
         self.setPos(0, self.ypos)
 
     def mouseClickEvent(self, ev):
@@ -741,6 +750,7 @@ class RawPlot(PlotItem):
                             ds_method=self.main.ds_method,
                             ds_chunk_size=self.main.ds_chunk_size,
                             enable_ds_cache=self.main.enable_ds_cache,
+                            check_nan = self.main.check_nan,
                             isbad=ch_name in self.main.raw.info['bads'])
 
         # Apply scaling
@@ -969,7 +979,7 @@ class PyQtGraphPtyp(QMainWindow):
                  nchan=30, ds='auto', ds_method='peak', ds_chunk_size=None,
                  antialiasing=False, use_opengl=False,
                  show_annotations=True, enable_ds_cache=True,
-                 tsteps_per_window=100):
+                 tsteps_per_window=100, check_nan=True):
         """
         PyQtGraph-Prototype as a new backend for raw.plot() from MNE-Python.
 
@@ -1009,6 +1019,8 @@ class PyQtGraphPtyp(QMainWindow):
         tsteps_per_window : int
             Set how many single scrolling-steps are done in time
             for the shown time-window.
+        check_nan : bool
+            If to check for NaN-values.
         """
         super().__init__()
 
@@ -1045,6 +1057,7 @@ class PyQtGraphPtyp(QMainWindow):
         self.show_annotations = show_annotations
         self.enable_ds_cache = enable_ds_cache
         self.tsteps_per_window = tsteps_per_window
+        self.check_nan = check_nan
 
         self.clock_ticks = False
         self.ch_colors = dict(mag='b', grad='#3a51ad', eeg='k', eog='k',
