@@ -1,6 +1,7 @@
 # Week 8
 ## Monday, 2021-07-26
-- opened issue and PR for pyqtgraph
+- opened [issue](https://github.com/pyqtgraph/pyqtgraph/issues/1926) and 
+  [PR](https://github.com/pyqtgraph/pyqtgraph/pull/1925) for pyqtgraph
 - added check_nan as parameter to test influence of performance of the 
   parameters connect and SkipFiniteCheck in setData
 - refreshed knowledge about fixtures and generators
