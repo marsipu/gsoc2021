@@ -1,4 +1,10 @@
 # Week 8
+- refactored the RawIO of test_raw.py
+- prepared browser_backend-fixture
+
+## Tuesday, 2021-07-27
+- unscheduled events in my laboratory required my attention.
+
 ## Monday, 2021-07-26
 - opened [issue](https://github.com/pyqtgraph/pyqtgraph/issues/1926) and 
   [PR](https://github.com/pyqtgraph/pyqtgraph/pull/1925) for pyqtgraph
