@@ -1,5 +1,6 @@
 import datetime
 import platform
+import sys
 from functools import partial
 from itertools import cycle
 
@@ -17,7 +18,7 @@ from mne.viz.utils import _get_color_list
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
-                       mkBrush, mkPen)
+                       mkBrush, mkPen, setConfigOption, mkQApp)
 from pyqtgraph.Qt.QtCore import Qt, Signal
 
 
@@ -948,7 +949,6 @@ class BrowserView(GraphicsView):
         super().__init__(**kwargs)
         self.main = main
         self.setCentralItem(plot)
-        self.setAntialiasing(self.main.antialiasing)
         self.viewport().setAttribute(Qt.WA_AcceptTouchEvents, True)
 
         self.viewport().grabGesture(Qt.PinchGesture)
@@ -1045,7 +1045,7 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase):
         self.ds = ds
         self.ds_method = ds_method
         self.ds_chunk_size = ds_chunk_size
-        self.antialiasing = antialiasing
+        setConfigOption('antialias', antialiasing)
         self.show_annotations = show_annotations
         self.enable_ds_cache = enable_ds_cache
         self.tsteps_per_window = tsteps_per_window
@@ -1356,3 +1356,13 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase):
         elif event.key() == Qt.Key_T:
             self.clock_ticks = not self.clock_ticks
             self.plt.axis_items['bottom'].refresh()
+
+
+def _init_browser(inst, figsize, **kwargs):
+    setConfigOption('enableExperimental', True)
+
+    mkQApp()
+    browser = PyQtGraphPtyp(inst=inst, figsize=figsize, **kwargs)
+    browser.show()
+
+    return browser
