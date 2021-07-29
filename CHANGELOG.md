@@ -1,4 +1,9 @@
 # Week 8
+# Thursday, 2021-07-29
+- worked on [PR](https://github.com/pyqtgraph/pyqtgraph/pull/1932) in pyqtgraph to make OpenGl-AA optional
+- added use/set/get-structure for browser-backend
+
+# Wednesday, 2021-07-28
 - refactored the RawIO of test_raw.py
 - prepared browser_backend-fixture
 
