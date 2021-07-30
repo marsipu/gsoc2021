@@ -7,3 +7,10 @@ for 2021's Google Summer of Code with the [Python Software Foundation](https://p
 It contains the code for my first prototypes and a [changelog](./CHANGELOG.md) to track my progress.
 
 If you have ideas/suggestions about the project or would like to get in touch, you are welcome to use the [issues-section](https://github.com/marsipu/gsoc2021/issues) of this repository.
+
+## Running the prototype
+
+You can try the current prototype in the branch `pre_integration` by running:
+```
+python -m prototypes
+```
