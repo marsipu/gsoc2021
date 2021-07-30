@@ -1,4 +1,9 @@
 # Week 8
+# Friday, 2021-07-30
+- worked further on [Refactoring PR](https://github.com/mne-tools/mne-python/pull/9596):
+  - created abstract-methods for test-interaction
+  - started with refactoring of tests in `mne.viz.tests.test_raw.py`
+
 # Thursday, 2021-07-29
 - worked on [PR](https://github.com/pyqtgraph/pyqtgraph/pull/1932) in pyqtgraph to make OpenGl-AA optional
 - added use/set/get-structure for browser-backend
