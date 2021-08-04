@@ -1,6 +1,6 @@
 # Add requirements not contained in standard MNE-Python-Installation
 # The newest development version fixes the openGL-issue on windows.
-pip install git+https://github.com/pyqtgraph/pyqtgraph@master
+git+https://github.com/pyqtgraph/pyqtgraph@master
 pyopengl
 vispy
 PythonQwt

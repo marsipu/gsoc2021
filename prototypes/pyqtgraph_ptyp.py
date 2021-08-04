@@ -1,19 +1,19 @@
 import datetime
 import platform
-import sys
 from functools import partial
 from itertools import cycle
 
 import numpy as np
 from PyQt5.QtCore import QEvent
 from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap, QTransform
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
                              QDockWidget, QDoubleSpinBox, QFormLayout,
                              QGridLayout, QHBoxLayout, QInputDialog, QLabel,
                              QMainWindow, QMessageBox, QPushButton, QScrollBar,
                              QSizePolicy, QWidget)
 from mne.utils import logger
-from mne.viz._browser import BrowserBase
+from mne.viz._figure import BrowserBase
 from mne.viz.utils import _get_color_list
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
@@ -964,7 +964,16 @@ class BrowserView(GraphicsView):
         return super().viewportEvent(event)
 
 
-class PyQtGraphPtyp(QMainWindow, BrowserBase):
+class _PGMetaClass(type(QMainWindow), type(BrowserBase)):
+    """This is class is necessary to prevent a metaclass conflict.
+
+    The conflict arises due to the different types of QMainWindow and
+    BrowserBase.
+    """
+    pass
+
+
+class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
     def __init__(self, inst, data, times, ch_types, duration=20,
                  n_channels=30, ds='auto', ds_method='peak', ds_chunk_size=None,
                  antialiasing=False, use_opengl=True,
@@ -1356,6 +1365,33 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase):
         elif event.key() == Qt.Key_T:
             self.clock_ticks = not self.clock_ticks
             self.plt.axis_items['bottom'].refresh()
+
+    def _close_event(self, fig=None):
+        fig = fig or self
+        fig.close()
+
+    def _fake_keypress(self, key, fig=None):
+        fig = fig or self
+        QTest.keyPress(fig, qt_key_mapping[key])
+
+    def _fake_click(self, point, fig=None, ax=None,
+                    xform='ax', button=1, kind='press'):
+        pass
+
+    def _fake_scroll(self, x, y, step, fig=None):
+        pass
+
+    def _click_ch_name(self, ch_index, button):
+        pass
+
+    def _resize_by_factor(self, factor):
+        pass
+
+qt_key_mapping = {
+    'escape': Qt.Key_Escape
+}
+for char in 'abcdefghijklmnopyqrstuvwxyz0123456789':
+    qt_key_mapping[char] = getattr(Qt, f'Key_{char.upper() or char}')
 
 
 def _init_browser(inst, figsize, **kwargs):

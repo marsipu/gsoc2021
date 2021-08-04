@@ -1,4 +1,9 @@
 # Week 9
+## Wednesday, 2021-08-04
+- worked on feedback on [Refactoring PR](https://github.com/mne-tools/mne-python/pull/9596)
+- started adaption of PyQtGraph-Prototype to BrowserBase
+
+## Tuesday, 2021-08-03
 - continued work on [Refactoring PR](https://github.com/mne-tools/mne-python/pull/9596):
   - fix failing tests
   - refactored tests in `mne.viz.tests.test_epochs.py` and `mne.viz.tests.test_ica.py`
