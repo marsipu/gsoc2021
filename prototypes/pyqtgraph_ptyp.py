@@ -236,7 +236,7 @@ class ChannelAxis(AxisItem):
     def mouseClickEvent(self, event):
         # Clean up channel-texts
         self.ch_texts = {k: v for k, v in self.ch_texts.items()
-                         if k in [li.ch_name for li in self.mne.plt.lines]}
+                         if k in [li.ch_name for li in self.mne.traces]}
         # Get channel-name from position of channel-description
         ypos = event.scenePos().y()
         ch_name = [chn for chn in self.ch_texts
@@ -244,7 +244,7 @@ class ChannelAxis(AxisItem):
         if len(ch_name) > 0:
             ch_name = ch_name[0]
             print(f'{ch_name} clicked!')
-            line = [li for li in self.mne.plt.lines
+            line = [li for li in self.mne.traces
                     if li.ch_name == ch_name][0]
             self.mne.plt.toggle_bad_channel(line)
         # return super().mouseClickEvent(event)
@@ -715,11 +715,10 @@ class RawPlot(PlotItem):
         self.mne = mne
         super().__init__(**kwargs)
 
-        self.lines = list()
+        self.mne.traces = list()
         self.scale_factor = 1
 
         # Additional GraphicsItems
-        self.vline = None
         self.annot_mode_hint = None
 
         # Pointers for continous scrolling
@@ -739,7 +738,7 @@ class RawPlot(PlotItem):
                        yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
 
-        # Add lines
+        # Add traces
         for ch_idx, (ch_data, ch_name, ch_type) in enumerate(
                 zip(self.mne.data[:self.mne.n_channels],
                     self.mne.inst.ch_names[:self.mne.n_channels],
@@ -769,7 +768,7 @@ class RawPlot(PlotItem):
 
         # Add Item early to have access to viewBox
         self.addItem(item)
-        self.lines.append(item)
+        self.mne.traces.append(item)
 
         item.sigClicked.connect(lambda line, _:
                                 self.toggle_bad_channel(line))
@@ -793,7 +792,7 @@ class RawPlot(PlotItem):
 
     def remove_line(self, line):
         self.removeItem(line)
-        self.lines.remove(line)
+        self.mne.traces.remove(line)
 
     def _get_downsampling(self):
         # Auto-Downsampling from pyqtgraph
@@ -820,7 +819,7 @@ class RawPlot(PlotItem):
     def xrange_changed(self, _, xrange):
         ds = self._get_downsampling()
 
-        for line in self.lines:
+        for line in self.mne.traces:
             line.ds = ds
             line.range_changed(*xrange)
 
@@ -835,7 +834,7 @@ class RawPlot(PlotItem):
             self.remove_line(rm_line)
         # Add new lines
         add_idxs = [p - 1 for p in new_ypos if
-                    p not in [li.ypos for li in self.lines]]
+                    p not in [li.ypos for li in self.mne.traces]]
         for aidx in add_idxs:
             ch_name = self.mne.inst.ch_names[aidx]
             ch_type = self.mne.ch_types[aidx]
@@ -851,7 +850,7 @@ class RawPlot(PlotItem):
         self.scale_factor *= 2 ** step
         transform = self._get_scale_transform()
 
-        for line in self.lines:
+        for line in self.mne.traces:
             line.setTransform(transform)
 
     def hscroll(self, step):
@@ -1036,6 +1035,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         QMainWindow.__init__(self)
 
         # Initialize Attributes
+        self._update_data()
         time_decimals = int(np.ceil(np.log10(self.mne.inst.info['sfreq'])))
 
         # Initialize Annotations (ToDo: Adjust to MPL)
@@ -1112,10 +1112,12 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         time_ax = TimeAxis(self.mne)
         ch_ax = ChannelAxis(self.mne)
         viewbox = RawViewBox(self)
+        vars(self.mne).update(time_ax=time_ax, ch_ax=ch_ax, viewbox=viewbox)
 
         # Initialize Line-Plot
         plt = RawPlot(self.mne, viewBox=viewbox,
                       axisItems={'bottom': time_ax, 'left': ch_ax})
+        vars(self.mne).update(plt=plt)
 
         # Check for OpenGL
         try:
@@ -1147,13 +1149,14 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         fig_annotation = AnnotationDock(self)
         self.addDockWidget(Qt.TopDockWidgetArea, fig_annotation)
         fig_annotation.setVisible(False)
+        vars(self.mne).update(fig_annotation=fig_annotation)
 
         # Initialize other widgets associated to annoations.
         self.change_annot_mode()
 
-        if self.show_annotations:
+        if self.mne.show_annotations:
             # Add all annotation-regions to a list and plot the visible ones.
-            for annot in self.annotations:
+            for annot in self.mne.annotations:
                 onset = round(annot['onset'] - self.first_time,
                               self.time_decimals)
                 duration = round(annot['duration'], self.time_decimals)
@@ -1165,12 +1168,12 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         adecr_time = QAction('-Time', parent=self)
         adecr_time.triggered.connect(partial(plt.change_duration,
-                                             -self.tsteps_per_window / 10))
+                                             -self.mne.tsteps_per_window / 10))
         toolbar.addAction(adecr_time)
 
         aincr_time = QAction('+Time', parent=self)
         aincr_time.triggered.connect(partial(plt.change_duration,
-                                             self.tsteps_per_window / 10))
+                                             self.mne.tsteps_per_window / 10))
         toolbar.addAction(aincr_time)
 
         adecr_nchan = QAction('-Channels', parent=self)
@@ -1190,19 +1193,18 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         toolbar.addAction(ahelp)
 
         vars(self.mne).update(
-            time_ax=time_ax, ch_ax=ch_ax, viewbox=viewbox,
             plt=plt, view=view, time_bar=time_bar, ch_bar=ch_bar,
             fig_annotation=fig_annotation, toolbar=toolbar
         )
 
     def main_xrange_changed(self, _, xrange):
-        self.time_bar.update_value_external(xrange)
+        self.mne.time_bar.update_value_external(xrange)
 
-        if self.show_annotations:
+        if self.mne.show_annotations:
             self.update_annot_range(*xrange)
 
     def main_yrange_changed(self, _, yrange):
-        self.channel_bar.update_value_external(yrange)
+        self.mne.channel_bar.update_value_external(yrange)
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # ANNOTATIONS
@@ -1211,18 +1213,18 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         # As in matplotlib-backend
         if any([b in description for b in ['bad', 'BAD', 'Bad']]):
             color = self.red
-        elif description in self.annot_color_mapping:
-            color = self.annot_color_mapping[description]
+        elif description in self.mne.annot_color_mapping:
+            color = self.mne.annot_color_mapping[description]
         else:
             color = next(self.color_cycle)
-        self.annot_color_mapping[description] = color
+        self.mne.annot_color_mapping[description] = color
         return color
 
     def update_colors(self):
-        update_regions = [r for r in self.regions
-                          if r.description == self.current_description]
+        update_regions = [r for r in self.mne.regions
+                          if r.description == self.mne.current_description]
         for u_region in update_regions:
-            u_region.update_color(self.get_color(self.current_description))
+            u_region.update_color(self.get_color(self.mne.current_description))
 
     def add_region(self, onset, duration, description, region=None):
         color = self.get_color(description)
@@ -1236,7 +1238,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         region.removeRequested.connect(self.remove_region)
         self.mne.plt.getViewBox().sigYRangeChanged.connect(
             region.change_label_pos)
-        self.regions.append(region)
+        self.mne.regions.append(region)
 
         xrange = self.mne.plt.getViewBox().viewRange()[0]
         if xrange[0] < onset < xrange[1] \
@@ -1254,21 +1256,21 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             self.mne.plt.removeItem(region)
 
         # Remove from all regions
-        if region in self.regions:
-            self.regions.remove(region)
+        if region in self.mne.regions:
+            self.mne.regions.remove(region)
 
         # Remove from annotations
         idx = self._get_onset_idx(region.getRegion()[0])
         self.annotations.delete(idx)
 
     def region_selected(self, region):
-        old_region = self.selected_region
+        old_region = self.mne.selected_region
         # Remove selected-status from old region
         if old_region:
             old_region.selected = False
             old_region.update()
-        self.selected_region = region
-        self.current_description = region.description
+        self.mne.selected_region = region
+        self.mne.current_description = region.description
         self.mne.fig_annotation.update_values(region)
 
     def _get_onset_idx(self, onset):
@@ -1296,14 +1298,14 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                      (self.annotations.onset < xmax + self.first_time))[0]]
         inside_onsets = [round(io - self.first_time, self.time_decimals)
                          for io in inside_onsets]
-        rm_regions = [r for r in self.regions
+        rm_regions = [r for r in self.mne.regions
                       if r.getRegion()[0] not in inside_onsets
                       and r in self.mne.plt.items]
         for rm_region in rm_regions:
             self.mne.plt.removeItem(rm_region)
             self.mne.plt.removeItem(rm_region.label_item)
 
-        add_regions = [r for r in self.regions
+        add_regions = [r for r in self.mne.regions
                        if r.getRegion()[0] in inside_onsets
                        and r not in self.mne.plt.items]
         for add_region in add_regions:
@@ -1315,33 +1317,51 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         """Add annotation to Annotations (onset is here the onset
         in the plot which is then adjusted with first_time)"""
         self.annotations.append(onset + self.first_time, duration,
-                                self.current_description)
-        self.add_region(onset, duration, self.current_description, region)
+                                self.mne.current_description)
+        self.add_region(onset, duration, self.mne.current_description, region)
         self.update_annot_range(*self.mne.plt.viewRange()[0])
 
     def change_annot_mode(self):
-        if self.show_annotations:
-            if not self.annotation_mode:
+        if self.mne.show_annotations:
+            if not self.mne.annotation_mode:
                 self.mne.fig_annotation.reset()
 
             # Show Annotation-Dock if activated.
-            self.mne.fig_annotation.setVisible(self.annotation_mode)
+            self.mne.fig_annotation.setVisible(self.mne.annotation_mode)
 
             # Make Regions movable if activated.
-            for region in self.regions:
-                region.setMovable(self.annotation_mode)
+            for region in self.mne.regions:
+                region.setMovable(self.mne.annotation_mode)
 
             # Remove selection-rectangle.
-            if not self.annotation_mode and self.selected_region:
-                self.selected_region.select(False)
-                self.selected_region = None
+            if not self.mne.annotation_mode and self.mne.selected_region:
+                self.mne.selected_region.select(False)
+                self.mne.selected_region = None
 
             # Show label for Annotation-Mode.
-            self.mne.plt.toggle_annot_hint(self.annotation_mode)
+            self.mne.plt.toggle_annot_hint(self.mne.annotation_mode)
 
     def toggle_annotation_mode(self):
-        self.annotation_mode = not self.annotation_mode
+        self.mne.annotation_mode = not self.mne.annotation_mode
         self.change_annot_mode()
+
+    def _update_trace_offsets(self):
+        pass
+
+    def _create_selection_fig(self):
+        pass
+
+    def _draw_traces(self):
+        pass
+
+    def _setup_annotation_colors(self):
+        pass
+
+    def _draw_annotations(self):
+        pass
+
+    def _toggle_proj_fig(self):
+        pass
 
     def keyPressEvent(self, event):
         # On MacOs additionally KeypadModifier is set when arrow-keys
