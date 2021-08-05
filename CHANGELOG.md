@@ -1,4 +1,7 @@
 # Week 9
+## Thursday, 2021-08-05
+- worked on adaption of PyQtGraph-Prototype to BrowserBase
+
 ## Wednesday, 2021-08-04
 - worked on feedback on [Refactoring PR](https://github.com/mne-tools/mne-python/pull/9596)
 - started adaption of PyQtGraph-Prototype to BrowserBase
