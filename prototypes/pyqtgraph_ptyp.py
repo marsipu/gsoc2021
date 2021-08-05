@@ -24,8 +24,8 @@ from pyqtgraph.Qt.QtCore import Qt, Signal
 
 class RawCurveItem(PlotCurveItem):
     def __init__(self, data, times, ch_name, ch_idx, ch_type, color, ypos,
-                 sfreq,
-                 ds, ds_method, ds_chunk_size, enable_ds_cache, check_nan,
+                 sfreq, ds, ds_method, ds_chunk_size, enable_ds_cache,
+                 check_nan,
                  isbad):
         super().__init__(clickable=True)
         self._data = data
@@ -170,15 +170,15 @@ class RawCurveItem(PlotCurveItem):
 
 
 class TimeAxis(AxisItem):
-    def __init__(self, main):
-        self.main = main
+    def __init__(self, mne):
+        self.mne = mne
         super().__init__(orientation='bottom')
 
     def tickStrings(self, values, scale, spacing):
 
-        if self.main.clock_ticks:
-            meas_date = self.main.inst.info['meas_date']
-            first_time = datetime.timedelta(seconds=self.main.inst.first_time)
+        if self.mne.time_format == 'clock':
+            meas_date = self.mne.inst.info['meas_date']
+            first_time = datetime.timedelta(seconds=self.mne.inst.first_time)
             digits = np.ceil(-np.log10(spacing) + 1).astype(int)
             tick_strings = list()
             for val in values:
@@ -200,8 +200,8 @@ class TimeAxis(AxisItem):
 
 
 class ChannelAxis(AxisItem):
-    def __init__(self, main):
-        self.main = main
+    def __init__(self, mne):
+        self.mne = mne
         self.ch_texts = dict()
         super().__init__(orientation='left')
 
@@ -215,14 +215,14 @@ class ChannelAxis(AxisItem):
         if not isinstance(values, list):
             values = [values]
         # Get channel-names
-        tick_strings = [self.main.inst.ch_names[v - 1] for v in values]
+        tick_strings = [self.mne.inst.ch_names[v - 1] for v in values]
 
         return tick_strings
 
     def drawPicture(self, p, axisSpec, tickSpecs, textSpecs):
         super().drawPicture(p, axisSpec, tickSpecs, textSpecs)
         for rect, flags, text in textSpecs:
-            if text in self.main.inst.info['bads']:
+            if text in self.mne.inst.info['bads']:
                 p.setPen(functions.mkPen('r'))
             else:
                 p.setPen(functions.mkPen('k'))
@@ -236,7 +236,7 @@ class ChannelAxis(AxisItem):
     def mouseClickEvent(self, event):
         # Clean up channel-texts
         self.ch_texts = {k: v for k, v in self.ch_texts.items()
-                         if k in [li.ch_name for li in self.main.plt.lines]}
+                         if k in [li.ch_name for li in self.mne.plt.lines]}
         # Get channel-name from position of channel-description
         ypos = event.scenePos().y()
         ch_name = [chn for chn in self.ch_texts
@@ -244,21 +244,21 @@ class ChannelAxis(AxisItem):
         if len(ch_name) > 0:
             ch_name = ch_name[0]
             print(f'{ch_name} clicked!')
-            line = [li for li in self.main.plt.lines
+            line = [li for li in self.mne.plt.lines
                     if li.ch_name == ch_name][0]
-            self.main._toggle_bad_channel(line)
+            self.mne.plt.toggle_bad_channel(line)
         # return super().mouseClickEvent(event)
 
 
 class TimeScrollBar(QScrollBar):
-    def __init__(self, main):
+    def __init__(self, mne):
         super().__init__(Qt.Horizontal)
-        self.main = main
+        self.mne = mne
         self.step_factor = None
 
         self.setMinimum(0)
         self.setSingleStep(1)
-        self.setPageStep(self.main.tsteps_per_window)
+        self.setPageStep(self.mne.tsteps_per_window)
         self.update_duration()
         self.setFocusPolicy(Qt.WheelFocus)
         # Because valueChanged is needed (captures every input to scrollbar,
@@ -270,10 +270,10 @@ class TimeScrollBar(QScrollBar):
     def time_changed(self, value):
         if not self.external_change:
             value /= self.step_factor
-            self.main.plt.setXRange(value, value + self.main.duration,
-                                    padding=0)
+            self.mne.plt.setXRange(value, value + self.mne.duration,
+                                   padding=0)
 
-    def update_value_external(self, _, xrange):
+    def update_value_external(self, xrange):
         # Mark change as external to avoid setting XRange again in time_changed
         self.external_change = True
         self.setValue(xrange[0] * self.step_factor)
@@ -281,10 +281,10 @@ class TimeScrollBar(QScrollBar):
         self.update_duration()
 
     def update_duration(self):
-        new_step_factor = self.main.tsteps_per_window / self.main.duration
+        new_step_factor = self.mne.tsteps_per_window / self.mne.duration
         if new_step_factor != self.step_factor:
             self.step_factor = new_step_factor
-            new_maximum = int((self.main.plt.xmax - self.main.duration)
+            new_maximum = int((self.mne.plt.xmax - self.mne.duration)
                               * self.step_factor)
             self.setMaximum(new_maximum)
 
@@ -294,12 +294,12 @@ class TimeScrollBar(QScrollBar):
 
 
 class ChannelScrollBar(QScrollBar):
-    def __init__(self, main):
+    def __init__(self, mne):
         super().__init__(Qt.Vertical)
-        self.main = main
+        self.mne = mne
 
         self.setMinimum(0)
-        self.setMaximum(self.main.plt.ymax - self.main.n_channels - 1)
+        self.setMaximum(self.mne.plt.ymax - self.mne.n_channels - 1)
         self.update_nchan()
         self.setSingleStep(1)
         self.setFocusPolicy(Qt.WheelFocus)
@@ -311,11 +311,11 @@ class ChannelScrollBar(QScrollBar):
 
     def channel_changed(self, value):
         new_ymin = value
-        new_ymax = value + self.main.n_channels + 1
+        new_ymax = value + self.mne.n_channels + 1
         if not self.external_change:
-            self.main.plt.setYRange(new_ymin, new_ymax, padding=0)
+            self.mne.plt.setYRange(new_ymin, new_ymax, padding=0)
 
-    def update_value_external(self, _, yrange):
+    def update_value_external(self, yrange):
         # Mark change as external to avoid setting YRange again in
         # channel_changed.
         self.external_change = True
@@ -324,8 +324,8 @@ class ChannelScrollBar(QScrollBar):
         self.update_nchan()
 
     def update_nchan(self):
-        self.setPageStep(self.main.n_channels)
-        self.setMaximum(self.main.plt.ymax - self.main.n_channels - 1)
+        self.setPageStep(self.mne.n_channels)
+        self.setMaximum(self.mne.plt.ymax - self.mne.n_channels - 1)
 
     def keyPressEvent(self, event):
         # Let main handle the keypress
@@ -337,6 +337,7 @@ class RawViewBox(ViewBox):
         super().__init__(invertY=True)
         self.enableAutoRange(enable=False, x=False, y=False)
         self.main = main
+        self.mne = main.mne
         self._drag_start = None
         self._drag_region = None
 
@@ -344,9 +345,9 @@ class RawViewBox(ViewBox):
         event.accept()
 
         if event.button() == Qt.LeftButton \
-                and self.main.annotation_mode:
-            if self.main.current_description:
-                description = self.main.current_description
+                and self.mne.annotation_mode:
+            if self.mne.current_description:
+                description = self.mne.current_description
                 if event.isStart():
                     self._drag_start = self.mapSceneToView(
                         event.scenePos()).x()
@@ -356,9 +357,9 @@ class RawViewBox(ViewBox):
                                                     color=self.main.get_color(
                                                         description),
                                                     time_decimals=
-                                                    self.main.time_decimals)
-                    self.main.plt.addItem(self._drag_region)
-                    self.main.plt.addItem(self._drag_region.label_item)
+                                                    self.mne.time_decimals)
+                    self.mne.plt.addItem(self._drag_region)
+                    self.mne.plt.addItem(self._drag_region.label_item)
                 elif event.isFinish():
                     drag_stop = self.mapSceneToView(event.scenePos()).x()
                     self._drag_region.setRegion((self._drag_start, drag_stop))
@@ -378,17 +379,17 @@ class RawViewBox(ViewBox):
         # If we want the context-menu back, uncomment following line
         # super().mouseClickEvent(event)
         if event.button() == Qt.LeftButton:
-            self.main.plt.add_vline(self.mapSceneToView(event.scenePos()).x())
+            self.mne.plt.add_vline(self.mapSceneToView(event.scenePos()).x())
         elif event.button() == Qt.RightButton:
-            self.main.plt.remove_vline()
+            self.mne.plt.remove_vline()
 
     def wheelEvent(self, ev, axis=None):
         ev.accept()
         scroll = -1 * ev.delta() / 120
         if ev.orientation() == Qt.Horizontal:
-            self.main.plt.hscroll(scroll * 10)
+            self.mne.plt.hscroll(scroll * 10)
         elif ev.orientation() == Qt.Vertical:
-            self.main.plt.vscroll(scroll)
+            self.mne.plt.vscroll(scroll)
 
 
 class VLineLabel(InfLineLabel):
@@ -396,13 +397,14 @@ class VLineLabel(InfLineLabel):
         super().__init__(vline, text='{value:.3f} s', position=0.975,
                          fill='g', color='b', movable=True)
         self.vline = vline
+        self.cursorOffset = None
 
     def mouseDragEvent(self, ev):
         if self.movable and ev.button() == Qt.LeftButton:
             if ev.isStart():
                 self.vline.moving = True
-                self.cursorOffset = self.vline.pos() - \
-                                    self.mapToView(ev.buttonDownPos())
+                self.cursorOffset = (self.vline.pos() -
+                                     self.mapToView(ev.buttonDownPos()))
             ev.accept()
 
             if not self.vline.moving:
@@ -425,7 +427,7 @@ class VLine(InfiniteLine):
 class HelpDialog(QDialog):
     def __init__(self, main):
         super().__init__(main)
-        self.main = main
+        self.mne = main.mne
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         self.init_ui()
@@ -433,7 +435,7 @@ class HelpDialog(QDialog):
 
     def init_ui(self):
         layout = QFormLayout()
-        for key, text in self.main.keyboard_shortcuts:
+        for key, text in self.mne.keyboard_shortcuts:
             layout.addRow(key, QLabel(text))
         self.setLayout(layout)
 
@@ -499,7 +501,7 @@ class AnnotRegion(LinearRegionItem):
 
     def remove(self):
         self.removeRequested.emit(self)
-        vb = self.getViewBox()
+        vb = self.mne.viewbox
         if vb and self.label_item in vb.addedItems:
             vb.removeItem(self.label_item)
 
@@ -518,7 +520,7 @@ class AnnotRegion(LinearRegionItem):
 
     def change_label_pos(self):
         rgn = self.getRegion()
-        vb = self.getViewBox()
+        vb = self.mne.viewbox
         if vb:
             ymax = vb.viewRange()[1][1]
             self.label_item.setPos(sum(rgn) / 2, ymax - 0.25)
@@ -528,6 +530,7 @@ class AnnotationDock(QDockWidget):
     def __init__(self, main):
         super().__init__('Annotations')
         self.main = main
+        self.mne = main.mne
         self.init_ui()
 
     def init_ui(self):
@@ -559,13 +562,13 @@ class AnnotationDock(QDockWidget):
 
         layout.addWidget(QLabel('Start:'))
         self.start_bx = QDoubleSpinBox()
-        self.start_bx.setDecimals(self.main.time_decimals)
+        self.start_bx.setDecimals(self.mne.time_decimals)
         self.start_bx.editingFinished.connect(self.start_changed)
         layout.addWidget(self.start_bx)
 
         layout.addWidget(QLabel('Stop:'))
         self.stop_bx = QDoubleSpinBox()
-        self.stop_bx.setDecimals(self.main.time_decimals)
+        self.stop_bx.setDecimals(self.mne.time_decimals)
         self.stop_bx.editingFinished.connect(self.stop_changed)
         layout.addWidget(self.stop_bx)
 
@@ -586,10 +589,10 @@ class AnnotationDock(QDockWidget):
                                                    'the new description!',
                                                    'New description: ')
         if ok and new_description \
-                and new_description not in self.main.descriptions:
-            self.main.descriptions.append(new_description)
+                and new_description not in self.mne.descriptions:
+            self.mne.descriptions.append(new_description)
             self._add_description_to_cmbx(new_description)
-        self.main.current_description = self.description_cmbx.currentText()
+        self.mne.current_description = self.description_cmbx.currentText()
 
     def edit_description(self):
         curr_descr = self.description_cmbx.currentText()
@@ -597,24 +600,24 @@ class AnnotationDock(QDockWidget):
                                                   'the changed description!',
                                             f'Change "{curr_descr}" to:')
         if ok and ch_descr:
-            edit_regions = [r for r in self.main.regions
+            edit_regions = [r for r in self.mne.regions
                             if r.description == curr_descr]
             for ed_region in edit_regions:
                 idx = self.main._get_onset_idx(ed_region.getRegion()[0])
-                self.main.annotations.description[idx] = ch_descr
+                self.mne.annotations.description[idx] = ch_descr
                 ed_region.update_description(ch_descr)
-            self.main.descriptions = list(set([ch_descr if i == curr_descr
-                                               else i for i in
-                                               self.main.descriptions]))
-            self.main.current_description = ch_descr
-            self.main.annot_color_mapping[ch_descr] = \
-                self.main.annot_color_mapping.pop(curr_descr)
+            self.mne.descriptions = list(set([ch_descr if i == curr_descr
+                                              else i for i in
+                                              self.mne.descriptions]))
+            self.mne.current_description = ch_descr
+            self.mne.annot_color_mapping[ch_descr] = \
+                self.mne.annot_color_mapping.pop(curr_descr)
             self.update_description_cmbx()
             self.main.update_colors()
 
     def remove_description(self):
         rm_description = self.description_cmbx.currentText()
-        existing_annot = list(self.main.inst.annotations.description).count(
+        existing_annot = list(self.mne.inst.annotations.description).count(
             rm_description)
         if existing_annot > 0:
             ans = QMessageBox.question(self,
@@ -626,32 +629,32 @@ class AnnotationDock(QDockWidget):
                                        f'Do you really want to remove them?')
             if ans == QMessageBox.Yes:
                 rm_idxs = np.where(
-                    self.main.inst.annotations.description == rm_description)
+                    self.mne.inst.annotations.description == rm_description)
                 for idx in rm_idxs:
-                    self.main.inst.annotations.delete(idx)
-                for rm_region in [r for r in self.main.regions
+                    self.mne.inst.annotations.delete(idx)
+                for rm_region in [r for r in self.mne.regions
                                   if r.description == rm_description]:
                     rm_region.remove()
 
         # Remove from descriptions
-        self.main.descriptions.remove(rm_description)
+        self.mne.descriptions.remove(rm_description)
         self.update_description_cmbx()
 
         # Remove from color-mapping
-        if rm_description in self.main.annot_color_mapping:
-            self.main.annot_color_mapping.pop(rm_description)
+        if rm_description in self.mne.annot_color_mapping:
+            self.mne.annot_color_mapping.pop(rm_description)
 
         # Set first description in Combo-Box to current description
         self.description_cmbx.setCurrentIndex(0)
-        self.main.current_description = self.description_cmbx.currentText()
+        self.mne.current_description = self.description_cmbx.currentText()
 
     def description_changed(self, descr_idx):
         new_descr = self.description_cmbx.itemText(descr_idx)
-        self.main.current_description = new_descr
+        self.mne.current_description = new_descr
 
     def start_changed(self):
         start = self.start_bx.value()
-        sel_region = self.main.selected_region
+        sel_region = self.mne.selected_region
         if sel_region:
             stop = sel_region.getRegion()[1]
             if start < stop:
@@ -663,7 +666,7 @@ class AnnotationDock(QDockWidget):
 
     def stop_changed(self):
         stop = self.stop_bx.value()
-        sel_region = self.main.selected_region
+        sel_region = self.mne.selected_region
         if sel_region:
             start = sel_region.getRegion()[0]
             if start < stop:
@@ -676,14 +679,14 @@ class AnnotationDock(QDockWidget):
 
     def set_color(self):
         curr_descr = self.description_cmbx.currentText()
-        if curr_descr in self.main.annot_color_mapping:
-            curr_col = self.main.annot_color_mapping[curr_descr]
+        if curr_descr in self.mne.annot_color_mapping:
+            curr_col = self.mne.annot_color_mapping[curr_descr]
         else:
             curr_col = None
         color = QColorDialog.getColor(QColor(curr_col), self,
                                       f'Choose color for {curr_descr}!')
         if color.isValid():
-            self.main.annot_color_mapping[curr_descr] = color
+            self.mne.annot_color_mapping[curr_descr] = color
             self.update_description_cmbx()
             self.main.update_colors()
 
@@ -695,25 +698,22 @@ class AnnotationDock(QDockWidget):
 
     def update_description_cmbx(self):
         self.description_cmbx.clear()
-        for description in self.main.descriptions:
+        for description in self.mne.descriptions:
             self._add_description_to_cmbx(description)
-        self.description_cmbx.setCurrentText(self.main.current_description)
+        self.description_cmbx.setCurrentText(self.mne.current_description)
 
     def reset(self):
         if self.description_cmbx.count() > 0:
             self.description_cmbx.setCurrentIndex(0)
-            self.main.current_description = self.description_cmbx.currentText()
+            self.mne.current_description = self.description_cmbx.currentText()
         self.start_bx.setValue(0)
         self.stop_bx.setValue(0)
 
 
 class RawPlot(PlotItem):
-    def __init__(self, main):
-        self.main = main
-        # ToDo: Somehow move Axes to main-attributes to for accessibility?
-        self.axis_items = {'bottom': TimeAxis(main),
-                           'left': ChannelAxis(main)}
-        super().__init__(viewBox=RawViewBox(main), axisItems=self.axis_items)
+    def __init__(self, mne, **kwargs):
+        self.mne = mne
+        super().__init__(**kwargs)
 
         self.lines = list()
         self.scale_factor = 1
@@ -730,20 +730,20 @@ class RawPlot(PlotItem):
         self.hideButtons()
 
         # Configure XY-Range
-        self.xmax = main.times[-1]
+        self.xmax = self.mne.times[-1]
         # Add one empty line as padding at top and bottom
-        self.ymax = main.data.shape[0] + 1
-        self.setXRange(0, main.duration, padding=0)
-        self.setYRange(0, main.n_channels + 1, padding=0)
+        self.ymax = self.mne.data.shape[0] + 1
+        self.setXRange(0, self.mne.duration, padding=0)
+        self.setYRange(0, self.mne.n_channels + 1, padding=0)
         self.setLimits(xMin=0, xMax=self.xmax,
                        yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
 
         # Add lines
         for ch_idx, (ch_data, ch_name, ch_type) in enumerate(
-                zip(self.main.data[:main.n_channels],
-                    self.main.inst.ch_names[:main.n_channels],
-                    self.main.ch_types)):
+                zip(self.mne.data[:self.mne.n_channels],
+                    self.mne.inst.ch_names[:self.mne.n_channels],
+                    self.mne.ch_types)):
             self.add_line(ch_idx, ch_data, ch_name, ch_type)
 
         self.sigXRangeChanged.connect(self.xrange_changed)
@@ -751,17 +751,17 @@ class RawPlot(PlotItem):
 
     def add_line(self, ch_idx, ch_data, ch_name, ch_type):
         ypos = ch_idx + 1
-        color = self.main.ch_colors[ch_type]
+        color = self.mne.ch_color_dict[ch_type]
         ds = self._get_downsampling()
-        item = RawCurveItem(data=ch_data, times=self.main.times,
+        item = RawCurveItem(data=ch_data, times=self.mne.times,
                             ch_name=ch_name, ch_idx=ch_idx,
                             ch_type=ch_type, color=color, ypos=ypos,
-                            sfreq=self.main.inst.info['sfreq'], ds=ds,
-                            ds_method=self.main.ds_method,
-                            ds_chunk_size=self.main.ds_chunk_size,
-                            enable_ds_cache=self.main.enable_ds_cache,
-                            check_nan=self.main.check_nan,
-                            isbad=ch_name in self.main.inst.info['bads'])
+                            sfreq=self.mne.inst.info['sfreq'], ds=ds,
+                            ds_method=self.mne.ds_method,
+                            ds_chunk_size=self.mne.ds_chunk_size,
+                            enable_ds_cache=self.mne.enable_ds_cache,
+                            check_nan=self.mne.check_nan,
+                            isbad=ch_name in self.mne.inst.info['bads'])
 
         # Apply scaling
         transform = self._get_scale_transform()
@@ -772,8 +772,24 @@ class RawPlot(PlotItem):
         self.lines.append(item)
 
         item.sigClicked.connect(lambda line, _:
-                                self.main.toggle_bad_channel(line))
-        item.range_changed(*self.getViewBox().viewRange()[0])
+                                self.toggle_bad_channel(line))
+        item.range_changed(*self.mne.viewbox.viewRange()[0])
+
+    def toggle_bad_channel(self, line):
+        if line.ch_name in self.mne.raw.info['bads']:
+            self.mne.raw.info['bads'].remove(line.ch_name)
+            line.isbad = False
+            print(f'{line.ch_name} removed from bad channels!')
+        else:
+            self.mne.raw.info['bads'].append(line.ch_name)
+            line.isbad = True
+            print(f'{line.ch_name} added to bad channels!')
+
+        # Update line color
+        line.update_bad_color()
+
+        # Update Channel-Axis
+        self.mne.ch_ax.redraw()
 
     def remove_line(self, line):
         self.removeItem(line)
@@ -781,20 +797,20 @@ class RawPlot(PlotItem):
 
     def _get_downsampling(self):
         # Auto-Downsampling from pyqtgraph
-        ds = self.main.ds if isinstance(self.main.ds, int) else 1
-        if self.main.ds == 'auto':
-            view = self.getViewBox()
-            if view is not None:
-                view_range = view.viewRect()
+        ds = self.mne.ds if isinstance(self.mne.ds, int) else 1
+        if self.mne.ds == 'auto':
+            vb = self.mne.viewbox
+            if vb is not None:
+                view_range = vb.viewRect()
             else:
                 view_range = None
-            if view_range is not None and len(self.main.times) > 1:
-                dx = float(self.main.times[-1] - self.main.times[0]) / (
-                        len(self.main.times) - 1)
+            if view_range is not None and len(self.mne.times) > 1:
+                dx = float(self.mne.times[-1] - self.mne.times[0]) / (
+                        len(self.mne.times) - 1)
                 if dx != 0.0:
                     x0 = view_range.left() / dx
                     x1 = view_range.right() / dx
-                    width = self.getViewBox().width()
+                    width = vb.width()
                     if width != 0.0:
                         # Auto-Downsampling with 5 samples per pixel
                         ds = int(max(1, (x1 - x0) / (width * 5)))
@@ -808,11 +824,8 @@ class RawPlot(PlotItem):
             line.ds = ds
             line.range_changed(*xrange)
 
-        if self.main.show_annotations:
-            self.main.update_range(*xrange)
-
     def redraw_lines(self):
-        self.xrange_changed(None, self.getViewBox().viewRange()[0])
+        self.xrange_changed(None, self.mne.viewbox.viewRange()[0])
 
     def yrange_changed(self, _, yrange):
         new_ypos = list(range(round(yrange[0]) + 1, round(yrange[1])))
@@ -824,9 +837,9 @@ class RawPlot(PlotItem):
         add_idxs = [p - 1 for p in new_ypos if
                     p not in [li.ypos for li in self.lines]]
         for aidx in add_idxs:
-            ch_name = self.main.inst.ch_names[aidx]
-            ch_type = self.main.ch_types[aidx]
-            self.add_line(aidx, self.main.data[aidx], ch_name, ch_type)
+            ch_name = self.mne.inst.ch_names[aidx]
+            ch_type = self.mne.ch_types[aidx]
+            self.add_line(aidx, self.mne.data[aidx], ch_name, ch_type)
 
     def _get_scale_transform(self):
         transform = QTransform()
@@ -842,22 +855,22 @@ class RawPlot(PlotItem):
             line.setTransform(transform)
 
     def hscroll(self, step):
-        rel_step = step * self.main.duration / self.main.tsteps_per_window
+        rel_step = step * self.mne.duration / self.mne.tsteps_per_window
         # Get current range and add step to it
         xmin, xmax = [i + rel_step for i in self.vb.viewRange()[0]]
 
         if xmin < 0:
             xmin = 0
-            xmax = xmin + self.main.duration
+            xmax = xmin + self.mne.duration
         elif xmax > self.xmax:
             xmax = self.xmax
-            xmin = xmax - self.main.duration
+            xmin = xmax - self.mne.duration
 
         self.setXRange(xmin, xmax, padding=0)
 
     def infini_hscroll(self, step):
-        vr = self.getViewBox().viewRange()
-        rel_step = self.main.duration * step / self.main.tsteps_per_window
+        vr = self.mne.viewbox.viewRange()
+        rel_step = self.mne.duration * step / self.mne.tsteps_per_window
         if vr[0][1] + rel_step > self.xmax or vr[0][0] - rel_step < 0:
             self._hscroll_dir *= -1
         step *= self._hscroll_dir
@@ -869,23 +882,23 @@ class RawPlot(PlotItem):
 
         if ymin < 0:
             ymin = 0
-            ymax = self.main.n_channels + 1
+            ymax = self.mne.n_channels + 1
         elif ymax > self.ymax:
             ymax = self.ymax
-            ymin = ymax - self.main.n_channels - 1
+            ymin = ymax - self.mne.n_channels - 1
 
         self.setYRange(ymin, ymax, padding=0)
 
     def infini_vscroll(self, step):
-        vr = self.getViewBox().viewRange()
+        vr = self.mne.viewbox.viewRange()
         if vr[1][1] + step > self.ymax or vr[1][0] - step < 0:
             self._vscroll_dir *= -1
         step *= self._vscroll_dir
         self.vscroll(step)
 
     def change_duration(self, step):
-        rel_step = (self.main.duration * step) / (
-                self.main.tsteps_per_window * 2)
+        rel_step = (self.mne.duration * step) / (
+                self.mne.tsteps_per_window * 2)
         xmin, xmax = self.vb.viewRange()[0]
         xmax += rel_step
         xmin -= rel_step
@@ -896,7 +909,7 @@ class RawPlot(PlotItem):
         if xmin < 0:
             xmin = 0
 
-        self.main.duration = xmax - xmin
+        self.mne.duration = xmax - xmin
 
         self.setXRange(xmin, xmax, padding=0)
 
@@ -913,7 +926,7 @@ class RawPlot(PlotItem):
         if ymax - ymin <= 2:
             ymax = ymin + 2
 
-        self.main.n_channels = ymax - ymin - 1
+        self.mne.n_channels = ymax - ymin - 1
 
         self.setYRange(ymin, ymax, padding=0)
 
@@ -945,9 +958,8 @@ class RawPlot(PlotItem):
 
 
 class BrowserView(GraphicsView):
-    def __init__(self, main, plot, **kwargs):
+    def __init__(self, plot, **kwargs):
         super().__init__(**kwargs)
-        self.main = main
         self.setCentralItem(plot)
         self.viewport().setAttribute(Qt.WA_AcceptTouchEvents, True)
 
@@ -964,7 +976,7 @@ class BrowserView(GraphicsView):
         return super().viewportEvent(event)
 
 
-class _PGMetaClass(type(QMainWindow), type(BrowserBase)):
+class _PGMetaClass(type(BrowserBase), type(QMainWindow)):
     """This is class is necessary to prevent a metaclass conflict.
 
     The conflict arises due to the different types of QMainWindow and
@@ -973,9 +985,8 @@ class _PGMetaClass(type(QMainWindow), type(BrowserBase)):
     pass
 
 
-class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
-    def __init__(self, inst, data, times, ch_types, duration=20,
-                 n_channels=30, ds='auto', ds_method='peak', ds_chunk_size=None,
+class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
+    def __init__(self, ds='auto', ds_method='peak', ds_chunk_size=None,
                  antialiasing=False, use_opengl=True,
                  show_annotations=True, enable_ds_cache=True,
                  tsteps_per_window=100, check_nan=False, **kwargs):
@@ -1021,136 +1032,40 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
         check_nan : bool
             If to check for NaN-values.
         """
-        QMainWindow.__init__(self)
         BrowserBase.__init__(self, **kwargs)
+        QMainWindow.__init__(self)
 
         # Initialize Attributes
-        self.inst = inst
-        self.data = data
-        # ToDo: Change to ypos being -ch_idx
-        # Invert data for display from the top (invertedY)
-        self.data = data * -1
-        self.times = times
-        self.first_time = inst.first_time
-        self.time_decimals = int(np.ceil(np.log10(inst.info['sfreq'])))
+        time_decimals = int(np.ceil(np.log10(self.mne.inst.info['sfreq'])))
 
-        self.ch_types = ch_types
-        self.annotation_mode = False
-        self.annotations = inst.annotations
-        self.descriptions = list(set(inst.annotations.description))
-        if len(self.descriptions) > 0:
-            self.current_description = self.descriptions[0]
+        # Initialize Annotations (ToDo: Adjust to MPL)
+        annotation_mode = False
+        annotations = self.mne.inst.annotations
+        descriptions = list(set(self.mne.inst.annotations.description))
+        if len(descriptions) > 0:
+            current_description = descriptions[0]
         else:
-            self.current_description = None
-        colors, self.red = _get_color_list(annotations=True)
-        self.color_cycle = cycle(colors)
-        self.annot_color_mapping = dict()
-        self.selected_region = None
-        self.regions = list()
+            current_description = None
+        colors, red = _get_color_list(annotations=True)
+        color_cycle = cycle(colors)
+        annot_color_mapping = dict()
+        selected_region = None
+        regions = list()
 
-        self.duration = min(duration,
-                            self.inst.n_times / self.inst.info['sfreq'])
-        self.n_channels = min(n_channels, len(self.inst.ch_names))
-        self.ds = ds
-        self.ds_method = ds_method
-        self.ds_chunk_size = ds_chunk_size
+        ds = ds
+        ds_method = ds_method
+        ds_chunk_size = ds_chunk_size
         setConfigOption('antialias', antialiasing)
-        self.show_annotations = show_annotations
-        self.enable_ds_cache = enable_ds_cache
-        self.tsteps_per_window = tsteps_per_window
-        self.check_nan = check_nan
-
-        self.clock_ticks = False
-        self.ch_colors = dict(mag='b', grad='#3a51ad', eeg='k', eog='k',
-                              ecg='m',
-                              emg='k', ref_meg='#1f2951', misc='k', stim='k',
-                              resp='k', chpi='k')
-
-        # Create centralWidget and layout
-        widget = QWidget()
-        layout = QGridLayout()
-
-        # Initialize Line-Plot
-        self.plt = RawPlot(self)
-
-        # Check for OpenGL
-        try:
-            import OpenGL
-        except ModuleNotFoundError:
-            logger.warning('pyopengl was not found on this device.\n'
-                           'Defaulting to plot without OpenGL with reduced '
-                           'performance.')
-            use_opengl = False
-
-        # Initialize BrowserView (inherits QGraphicsView)
-        self.view = BrowserView(self, self.plt, background='w',
-                                useOpenGL=use_opengl)
-        layout.addWidget(self.view, 0, 0)
-
-        # Initialize Scroll-Bars
-        self.time_bar = TimeScrollBar(self)
-        self.plt.sigXRangeChanged.connect(self.time_bar.update_value_external)
-        layout.addWidget(self.time_bar, 1, 0)
-
-        self.channel_bar = ChannelScrollBar(self)
-        self.plt.sigYRangeChanged.connect(
-            self.channel_bar.update_value_external)
-        layout.addWidget(self.channel_bar, 0, 1)
-
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
-
-        # Initialize Annotation-Dock
-        self.annot_dock = AnnotationDock(self)
-        self.addDockWidget(Qt.TopDockWidgetArea, self.annot_dock)
-        self.annot_dock.setVisible(False)
-
-        # Initialize other widgets associated to annoations.
-        self.change_annot_mode()
-
-        if self.show_annotations:
-            # Add all annotation-regions to a list and plot the visible ones.
-            for annot in self.annotations:
-                onset = round(annot['onset'] - self.first_time,
-                              self.time_decimals)
-                duration = round(annot['duration'], self.time_decimals)
-                description = annot['description']
-                self.add_region(onset, duration, description)
-
-        # Initialize Toolbar
-        self.toolbar = self.addToolBar('Tools')
-
-        adecr_time = QAction('-Time', parent=self)
-        adecr_time.triggered.connect(partial(self.plt.change_duration,
-                                             -self.tsteps_per_window / 10))
-        self.toolbar.addAction(adecr_time)
-
-        aincr_time = QAction('+Time', parent=self)
-        aincr_time.triggered.connect(partial(self.plt.change_duration,
-                                             self.tsteps_per_window / 10))
-        self.toolbar.addAction(aincr_time)
-
-        adecr_nchan = QAction('-Channels', parent=self)
-        adecr_nchan.triggered.connect(partial(self.plt.change_nchan, -10))
-        self.toolbar.addAction(adecr_nchan)
-
-        aincr_nchan = QAction('+Channels', parent=self)
-        aincr_nchan.triggered.connect(partial(self.plt.change_nchan, 10))
-        self.toolbar.addAction(aincr_nchan)
-
-        atoggle_annot = QAction('Toggle Annotations', parent=self)
-        atoggle_annot.triggered.connect(self.toggle_annotation_mode)
-        self.toolbar.addAction(atoggle_annot)
-
-        ahelp = QAction('Help', parent=self)
-        ahelp.triggered.connect(partial(HelpDialog, self))
-        self.toolbar.addAction(ahelp)
+        show_annotations = show_annotations
+        enable_ds_cache = enable_ds_cache
+        tsteps_per_window = tsteps_per_window
+        check_nan = check_nan
 
         # Initialize Keyboard-Shortcuts
         is_mac = platform.system() == 'Darwin'
         dur_keys = ('fn + ←', 'fn + →') if is_mac else ('Home', 'End')
         ch_keys = ('fn + ↑', 'fn + ↓') if is_mac else ('Page up', 'Page down')
-        self.keyboard_shortcuts = [
+        keyboard_shortcuts = [
             ('←', 'Move left'),
             ('→', 'Move right'),
             ('Ctrl + ←', 'Move 1s left'),
@@ -1171,6 +1086,127 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
             ('t', 'Toggle time format')
         ]
 
+        # Add attributes to MNEBrowseParams
+        # (some UI-Elements may already need them)
+        vars(self.mne).update(time_decimals=time_decimals,
+                              annotation_mode=annotation_mode,
+                              annotations=annotations,
+                              descriptions=descriptions,
+                              current_description=current_description, red=red,
+                              color_cycle=color_cycle,
+                              annot_color_mapping=annot_color_mapping,
+                              selected_region=selected_region, regions=regions,
+                              ds=ds, ds_method=ds_method,
+                              ds_chunk_size=ds_chunk_size,
+                              show_annotations=show_annotations,
+                              enable_ds_cache=enable_ds_cache,
+                              tsteps_per_window=tsteps_per_window,
+                              check_nan=check_nan,
+                              keyboard_shortcuts=keyboard_shortcuts)
+
+        # Create centralWidget and layout
+        widget = QWidget()
+        layout = QGridLayout()
+
+        # Initialize Axis-Items
+        time_ax = TimeAxis(self.mne)
+        ch_ax = ChannelAxis(self.mne)
+        viewbox = RawViewBox(self)
+
+        # Initialize Line-Plot
+        plt = RawPlot(self.mne, viewBox=viewbox,
+                      axisItems={'bottom': time_ax, 'left': ch_ax})
+
+        # Check for OpenGL
+        try:
+            import OpenGL
+        except ModuleNotFoundError:
+            logger.warning('pyopengl was not found on this device.\n'
+                           'Defaulting to plot without OpenGL with reduced '
+                           'performance.')
+            use_opengl = False
+
+        # Initialize BrowserView (inherits QGraphicsView)
+        view = BrowserView(plt, background='w',
+                           useOpenGL=use_opengl)
+        layout.addWidget(view, 0, 0)
+
+        # Initialize Scroll-Bars
+        time_bar = TimeScrollBar(self.mne)
+        plt.sigXRangeChanged.connect(self.main_xrange_changed)
+        layout.addWidget(time_bar, 1, 0)
+
+        ch_bar = ChannelScrollBar(self.mne)
+        plt.sigYRangeChanged.connect(self.main_yrange_changed)
+        layout.addWidget(ch_bar, 0, 1)
+
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        # Initialize Annotation-Dock
+        fig_annotation = AnnotationDock(self)
+        self.addDockWidget(Qt.TopDockWidgetArea, fig_annotation)
+        fig_annotation.setVisible(False)
+
+        # Initialize other widgets associated to annoations.
+        self.change_annot_mode()
+
+        if self.show_annotations:
+            # Add all annotation-regions to a list and plot the visible ones.
+            for annot in self.annotations:
+                onset = round(annot['onset'] - self.first_time,
+                              self.time_decimals)
+                duration = round(annot['duration'], self.time_decimals)
+                description = annot['description']
+                self.add_region(onset, duration, description)
+
+        # Initialize Toolbar
+        toolbar = self.addToolBar('Tools')
+
+        adecr_time = QAction('-Time', parent=self)
+        adecr_time.triggered.connect(partial(plt.change_duration,
+                                             -self.tsteps_per_window / 10))
+        toolbar.addAction(adecr_time)
+
+        aincr_time = QAction('+Time', parent=self)
+        aincr_time.triggered.connect(partial(plt.change_duration,
+                                             self.tsteps_per_window / 10))
+        toolbar.addAction(aincr_time)
+
+        adecr_nchan = QAction('-Channels', parent=self)
+        adecr_nchan.triggered.connect(partial(plt.change_nchan, -10))
+        toolbar.addAction(adecr_nchan)
+
+        aincr_nchan = QAction('+Channels', parent=self)
+        aincr_nchan.triggered.connect(partial(plt.change_nchan, 10))
+        toolbar.addAction(aincr_nchan)
+
+        atoggle_annot = QAction('Toggle Annotations', parent=self)
+        atoggle_annot.triggered.connect(self.toggle_annotation_mode)
+        toolbar.addAction(atoggle_annot)
+
+        ahelp = QAction('Help', parent=self)
+        ahelp.triggered.connect(partial(HelpDialog, self))
+        toolbar.addAction(ahelp)
+
+        vars(self.mne).update(
+            time_ax=time_ax, ch_ax=ch_ax, viewbox=viewbox,
+            plt=plt, view=view, time_bar=time_bar, ch_bar=ch_bar,
+            fig_annotation=fig_annotation, toolbar=toolbar
+        )
+
+    def main_xrange_changed(self, _, xrange):
+        self.time_bar.update_value_external(xrange)
+
+        if self.show_annotations:
+            self.update_annot_range(*xrange)
+
+    def main_yrange_changed(self, _, yrange):
+        self.channel_bar.update_value_external(yrange)
+
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+    # ANNOTATIONS
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     def get_color(self, description):
         # As in matplotlib-backend
         if any([b in description for b in ['bad', 'BAD', 'Bad']]):
@@ -1198,24 +1234,24 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
         region.regionChangeFinished.connect(self.region_changed)
         region.gotSelected.connect(self.region_selected)
         region.removeRequested.connect(self.remove_region)
-        self.plt.getViewBox().sigYRangeChanged.connect(
+        self.mne.plt.getViewBox().sigYRangeChanged.connect(
             region.change_label_pos)
         self.regions.append(region)
 
-        xrange = self.plt.getViewBox().viewRange()[0]
+        xrange = self.mne.plt.getViewBox().viewRange()[0]
         if xrange[0] < onset < xrange[1] \
-                and region not in self.plt.items:
-            self.plt.addItem(region)
+                and region not in self.mne.plt.items:
+            self.mne.plt.addItem(region)
             # Found no better way yet to initialize the region-labels
-            self.plt.addItem(region.label_item)
+            self.mne.plt.addItem(region.label_item)
             region.change_label_pos()
 
     def remove_region(self, region):
         # Remove from shown regions
-        if region.label_item in self.plt.getViewBox().addedItems:
-            self.plt.getViewBox().removeItem(region.label_item)
-        if region in self.plt.items:
-            self.plt.removeItem(region)
+        if region.label_item in self.mne.plt.getViewBox().addedItems:
+            self.mne.plt.getViewBox().removeItem(region.label_item)
+        if region in self.mne.plt.items:
+            self.mne.plt.removeItem(region)
 
         # Remove from all regions
         if region in self.regions:
@@ -1233,7 +1269,7 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
             old_region.update()
         self.selected_region = region
         self.current_description = region.description
-        self.annot_dock.update_values(region)
+        self.mne.fig_annotation.update_values(region)
 
     def _get_onset_idx(self, onset):
         idx = np.where(np.around(self.annotations.onset - self.first_time,
@@ -1246,14 +1282,14 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
         idx = self._get_onset_idx(region.old_onset)
 
         # Update Spinboxes of Annot-Dock
-        self.annot_dock.update_values(region)
+        self.mne.fig_annotation.update_values(region)
 
         # Change annotations
         self.annotations.onset[idx] = round(rgn[0] + self.first_time,
                                             self.time_decimals)
         self.annotations.duration[idx] = rgn[1] - rgn[0]
 
-    def update_range(self, xmin, xmax):
+    def update_annot_range(self, xmin, xmax):
         inside_onsets = self.annotations.onset[
             np.where((self.annotations.onset + self.annotations.duration
                       >= xmin + self.first_time) &
@@ -1262,17 +1298,17 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
                          for io in inside_onsets]
         rm_regions = [r for r in self.regions
                       if r.getRegion()[0] not in inside_onsets
-                      and r in self.plt.items]
+                      and r in self.mne.plt.items]
         for rm_region in rm_regions:
-            self.plt.removeItem(rm_region)
-            self.plt.removeItem(rm_region.label_item)
+            self.mne.plt.removeItem(rm_region)
+            self.mne.plt.removeItem(rm_region.label_item)
 
         add_regions = [r for r in self.regions
                        if r.getRegion()[0] in inside_onsets
-                       and r not in self.plt.items]
+                       and r not in self.mne.plt.items]
         for add_region in add_regions:
-            self.plt.addItem(add_region)
-            self.plt.addItem(add_region.label_item)
+            self.mne.plt.addItem(add_region)
+            self.mne.plt.addItem(add_region.label_item)
             add_region.change_label_pos()
 
     def add_annotation(self, onset, duration, region=None):
@@ -1281,15 +1317,15 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
         self.annotations.append(onset + self.first_time, duration,
                                 self.current_description)
         self.add_region(onset, duration, self.current_description, region)
-        self.update_range(*self.plt.viewRange()[0])
+        self.update_annot_range(*self.mne.plt.viewRange()[0])
 
     def change_annot_mode(self):
         if self.show_annotations:
             if not self.annotation_mode:
-                self.annot_dock.reset()
+                self.mne.fig_annotation.reset()
 
             # Show Annotation-Dock if activated.
-            self.annot_dock.setVisible(self.annotation_mode)
+            self.mne.fig_annotation.setVisible(self.annotation_mode)
 
             # Make Regions movable if activated.
             for region in self.regions:
@@ -1301,7 +1337,7 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
                 self.selected_region = None
 
             # Show label for Annotation-Mode.
-            self.plt.toggle_annot_hint(self.annotation_mode)
+            self.mne.plt.toggle_annot_hint(self.annotation_mode)
 
     def toggle_annotation_mode(self):
         self.annotation_mode = not self.annotation_mode
@@ -1318,53 +1354,56 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
         big_t = 10
         if event.key() == Qt.Key_Left:
             if '4' in modhex:
-                self.plt.hscroll(-lil_t)
+                self.mne.plt.hscroll(-lil_t)
             else:
-                self.plt.hscroll(-big_t)
+                self.mne.plt.hscroll(-big_t)
         elif event.key() == Qt.Key_Right:
             if '4' in modhex:
-                self.plt.hscroll(lil_t)
+                self.mne.plt.hscroll(lil_t)
             else:
-                self.plt.hscroll(big_t)
+                self.mne.plt.hscroll(big_t)
         elif event.key() == Qt.Key_Up:
             if '4' in modhex:
-                self.plt.vscroll(-1)
+                self.mne.plt.vscroll(-1)
             else:
-                self.plt.vscroll(-10)
+                self.mne.plt.vscroll(-10)
         elif event.key() == Qt.Key_Down:
             if '4' in modhex:
-                self.plt.vscroll(1)
+                self.mne.plt.vscroll(1)
             else:
-                self.plt.vscroll(10)
+                self.mne.plt.vscroll(10)
         elif event.key() == Qt.Key_Home:
             if '4' in modhex:
-                self.plt.change_duration(-lil_t)
+                self.mne.plt.change_duration(-lil_t)
             else:
-                self.plt.change_duration(-big_t)
+                self.mne.plt.change_duration(-big_t)
         elif event.key() == Qt.Key_End:
             if '4' in modhex:
-                self.plt.change_duration(lil_t)
+                self.mne.plt.change_duration(lil_t)
             else:
-                self.plt.change_duration(big_t)
+                self.mne.plt.change_duration(big_t)
         elif event.key() == Qt.Key_PageDown:
             if '4' in modhex:
-                self.plt.change_nchan(-1)
+                self.mne.plt.change_nchan(-1)
             else:
-                self.plt.change_nchan(-10)
+                self.mne.plt.change_nchan(-10)
         elif event.key() == Qt.Key_PageUp:
             if '4' in modhex:
-                self.plt.change_nchan(1)
+                self.mne.plt.change_nchan(1)
             else:
-                self.plt.change_nchan(10)
+                self.mne.plt.change_nchan(10)
         elif event.key() == Qt.Key_Comma:
-            self.plt.scale_all(-1)
+            self.mne.plt.scale_all(-1)
         elif event.key() == Qt.Key_Period:
-            self.plt.scale_all(1)
+            self.mne.plt.scale_all(1)
         elif event.key() == Qt.Key_A:
             self.toggle_annotation_mode()
         elif event.key() == Qt.Key_T:
-            self.clock_ticks = not self.clock_ticks
-            self.plt.axis_items['bottom'].refresh()
+            if self.mne.time_format == 'clock':
+                self.mne.time_format = 'float'
+            else:
+                self.mne.time_format = 'clock'
+            self.mne.time_ax.refresh()
 
     def _close_event(self, fig=None):
         fig = fig or self
@@ -1386,6 +1425,7 @@ class PyQtGraphPtyp(QMainWindow, BrowserBase, metaclass=_PGMetaClass):
 
     def _resize_by_factor(self, factor):
         pass
+
 
 qt_key_mapping = {
     'escape': Qt.Key_Escape
