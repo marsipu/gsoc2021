@@ -1,4 +1,8 @@
 # Week 9
+## Friday, 2021-08-06
+- worked on adaption and generalization of data-loading in pyqtgraph and 
+  matplotlib
+
 ## Thursday, 2021-08-05
 - worked on adaption of PyQtGraph-Prototype to BrowserBase
 
