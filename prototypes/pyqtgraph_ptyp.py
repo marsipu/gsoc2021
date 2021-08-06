@@ -23,44 +23,21 @@ from pyqtgraph.Qt.QtCore import Qt, Signal
 
 
 class RawCurveItem(PlotCurveItem):
-    def __init__(self, data, times, ch_name, ch_idx, ch_type, color, ypos,
-                 sfreq, ds, ds_method, ds_chunk_size, enable_ds_cache,
-                 check_nan,
-                 isbad):
+    """Graphics-Object for single data trace."""
+    def __init__(self, mne, ch_name, ch_idx, ch_type, color, ypos,
+                 check_nan, isbad):
         super().__init__(clickable=True)
-        self._data = data
-        self._times = times
+        self.mne = mne
         self.ch_name = ch_name
         self.ch_idx = ch_idx
         self.ch_type = ch_type
         self.color = color
         self.ypos = ypos
-        self.sfreq = sfreq
-        self.ds = ds
-        self.ds_method = ds_method
-        self.ds_chunk_size = ds_chunk_size
-        self.enable_ds_cache = enable_ds_cache
         self.check_nan = check_nan
         self.isbad = isbad
         self.update_bad_color()
 
         self.ds_cache = dict()
-
-    @property
-    def data(self):
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = value
-
-    @property
-    def times(self):
-        return self._times
-
-    @times.setter
-    def times(self, value):
-        self._times = value
 
     def update_bad_color(self):
         if self.isbad:
@@ -68,85 +45,8 @@ class RawCurveItem(PlotCurveItem):
         else:
             self.setPen(self.color)
 
-    def get_ds_cache(self, xmin, xmax):
-        if self.ds in self.ds_cache:
-            x, y = self.ds_cache[self.ds]
-        else:
-            x, y = self.apply_ds(self.times, self.data)
-            self.ds_cache[self.ds] = (x, y)
 
-        min_ix = np.argmin(abs(x - xmin))
-        max_ix = np.argmin(abs(x - xmax))
-
-        x = x[min_ix:max_ix]
-        y = y[min_ix:max_ix]
-
-        return x, y
-
-    def apply_ds(self, x, y):
-        if self.ds_method == 'subsample':
-            x = x[::self.ds]
-            y = y[::self.ds]
-
-        elif self.ds_method == 'mean':
-            n = len(x) // self.ds
-            # start of x-values; try to select a somewhat centered point
-            stx = self.ds // 2
-            x = x[stx:stx + n * self.ds:self.ds]
-            y = y[:n * self.ds].reshape(n, self.ds).mean(axis=1)
-
-        elif self.ds_method == 'peak':
-            n = len(x) // self.ds
-            # start of x-values; try to select a somewhat centered point
-            stx = self.ds // 2
-
-            x1 = np.empty((n, 2))
-            x1[:] = x[stx:stx + n * self.ds:self.ds, np.newaxis]
-            x = x1.reshape(n * 2)
-
-            y1 = np.empty((n, 2))
-            y2 = y[:n * self.ds].reshape((n, self.ds))
-            y1[:, 0] = y2.max(axis=1)
-            y1[:, 1] = y2.min(axis=1)
-            y = y1.reshape(n * 2)
-
-        return x, y
-
-    def range_changed(self, xmin, xmax):
-        start = max(0, int(xmin * self.sfreq))
-        stop = min(len(self.data), int(xmax * self.sfreq + 1))
-        visible_x = self.times[start:stop]
-        visible_y = self.data[start:stop]
-
-        if self.ds not in [1, None]:
-            if self.enable_ds_cache:
-                x, y = self.get_ds_cache(xmin, xmax)
-
-            elif self.ds_chunk_size:
-                chunkSize = (self.ds_chunk_size // self.ds) * self.ds
-                sourcePtr = 0
-                x = np.empty(0, dtype=self.times.dtype)
-                y = np.empty(0, dtype=self.data.dtype)
-                data_len = len(visible_x)
-                while sourcePtr < data_len - 1:
-                    xchunk = visible_x[sourcePtr:min(stop,
-                                                     sourcePtr + chunkSize)]
-                    ychunk = visible_y[sourcePtr:min(stop,
-                                                     sourcePtr + chunkSize)]
-                    sourcePtr += len(xchunk)
-
-                    xchunk, ychunk = self.apply_ds(xchunk, ychunk)
-
-                    x = np.append(x, xchunk)
-                    y = np.append(y, ychunk)
-
-            else:
-                x, y = self.apply_ds(visible_x, visible_y)
-
-        else:
-            x = visible_x
-            y = visible_y
-
+    def set_data(self, x, y):
         if self.check_nan:
             connect = 'finite'
             skip = False
@@ -170,6 +70,7 @@ class RawCurveItem(PlotCurveItem):
 
 
 class TimeAxis(AxisItem):
+    """The X-Axis displaying the time."""
     def __init__(self, mne):
         self.mne = mne
         super().__init__(orientation='bottom')
@@ -200,6 +101,7 @@ class TimeAxis(AxisItem):
 
 
 class ChannelAxis(AxisItem):
+    """The Y-Axis displaying the channel-names."""
     def __init__(self, mne):
         self.mne = mne
         self.ch_texts = dict()
@@ -251,6 +153,7 @@ class ChannelAxis(AxisItem):
 
 
 class TimeScrollBar(QScrollBar):
+    """Scrolls through time."""
     def __init__(self, mne):
         super().__init__(Qt.Horizontal)
         self.mne = mne
@@ -294,6 +197,7 @@ class TimeScrollBar(QScrollBar):
 
 
 class ChannelScrollBar(QScrollBar):
+    """Scrolls through channels."""
     def __init__(self, mne):
         super().__init__(Qt.Vertical)
         self.mne = mne
@@ -333,6 +237,7 @@ class ChannelScrollBar(QScrollBar):
 
 
 class RawViewBox(ViewBox):
+    """PyQtGraph-Wrapper for interaction with the View."""
     def __init__(self, main):
         super().__init__(invertY=True)
         self.enableAutoRange(enable=False, x=False, y=False)
@@ -393,6 +298,7 @@ class RawViewBox(ViewBox):
 
 
 class VLineLabel(InfLineLabel):
+    """Label of the vline displaying the time."""
     def __init__(self, vline):
         super().__init__(vline, text='{value:.3f} s', position=0.975,
                          fill='g', color='b', movable=True)
@@ -418,6 +324,7 @@ class VLineLabel(InfLineLabel):
 
 
 class VLine(InfiniteLine):
+    """Marker to be placed inside the Data-Trace-Plot."""
     def __init__(self, pos, bounds):
         super().__init__(pos, pen='g', hoverPen='y',
                          movable=True, bounds=bounds)
@@ -425,6 +332,7 @@ class VLine(InfiniteLine):
 
 
 class HelpDialog(QDialog):
+    """Shows all keyboard-shortcuts."""
     def __init__(self, main):
         super().__init__(main)
         self.mne = main.mne
@@ -441,6 +349,7 @@ class HelpDialog(QDialog):
 
 
 class AnnotRegion(LinearRegionItem):
+    """Graphics-Oobject for Annotations."""
     regionChangeFinished = Signal(object)
     gotSelected = Signal(object)
     removeRequested = Signal(object)
@@ -527,6 +436,7 @@ class AnnotRegion(LinearRegionItem):
 
 
 class AnnotationDock(QDockWidget):
+    """Dock-Window for Management of annotations."""
     def __init__(self, main):
         super().__init__('Annotations')
         self.main = main
@@ -711,6 +621,9 @@ class AnnotationDock(QDockWidget):
 
 
 class RawPlot(PlotItem):
+    """
+    Plots and manages data traces.
+    """
     def __init__(self, mne, **kwargs):
         self.mne = mne
         super().__init__(**kwargs)
@@ -729,9 +642,9 @@ class RawPlot(PlotItem):
         self.hideButtons()
 
         # Configure XY-Range
-        self.xmax = self.mne.times[-1]
+        self.xmax = self.mne.inst.times[-1]
         # Add one empty line as padding at top and bottom
-        self.ymax = self.mne.data.shape[0] + 1
+        self.ymax = self.mne.inst.data.shape[0] + 1
         self.setXRange(0, self.mne.duration, padding=0)
         self.setYRange(0, self.mne.n_channels + 1, padding=0)
         self.setLimits(xMin=0, xMax=self.xmax,
@@ -775,12 +688,12 @@ class RawPlot(PlotItem):
         item.range_changed(*self.mne.viewbox.viewRange()[0])
 
     def toggle_bad_channel(self, line):
-        if line.ch_name in self.mne.raw.info['bads']:
-            self.mne.raw.info['bads'].remove(line.ch_name)
+        if line.ch_name in self.mne.inst.info['bads']:
+            self.mne.inst.info['bads'].remove(line.ch_name)
             line.isbad = False
             print(f'{line.ch_name} removed from bad channels!')
         else:
-            self.mne.raw.info['bads'].append(line.ch_name)
+            self.mne.inst.info['bads'].append(line.ch_name)
             line.isbad = True
             print(f'{line.ch_name} added to bad channels!')
 
@@ -793,28 +706,6 @@ class RawPlot(PlotItem):
     def remove_line(self, line):
         self.removeItem(line)
         self.mne.traces.remove(line)
-
-    def _get_downsampling(self):
-        # Auto-Downsampling from pyqtgraph
-        ds = self.mne.ds if isinstance(self.mne.ds, int) else 1
-        if self.mne.ds == 'auto':
-            vb = self.mne.viewbox
-            if vb is not None:
-                view_range = vb.viewRect()
-            else:
-                view_range = None
-            if view_range is not None and len(self.mne.times) > 1:
-                dx = float(self.mne.times[-1] - self.mne.times[0]) / (
-                        len(self.mne.times) - 1)
-                if dx != 0.0:
-                    x0 = view_range.left() / dx
-                    x1 = view_range.right() / dx
-                    width = vb.width()
-                    if width != 0.0:
-                        # Auto-Downsampling with 5 samples per pixel
-                        ds = int(max(1, (x1 - x0) / (width * 5)))
-
-        return ds
 
     def xrange_changed(self, _, xrange):
         ds = self._get_downsampling()
@@ -957,6 +848,7 @@ class RawPlot(PlotItem):
 
 
 class BrowserView(GraphicsView):
+    """Customized View as part of GraphicsView-Framework."""
     def __init__(self, plot, **kwargs):
         super().__init__(**kwargs)
         self.setCentralItem(plot)
@@ -988,7 +880,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def __init__(self, ds='auto', ds_method='peak', ds_chunk_size=None,
                  antialiasing=False, use_opengl=True,
                  show_annotations=True, enable_ds_cache=True,
-                 tsteps_per_window=100, check_nan=False, **kwargs):
+                 tsteps_per_window=100, check_nan=False,
+                 apply_preproc='global', **kwargs):
         """
         PyQtGraph-Prototype as a new backend for inst.plot() from MNE-Python.
 
@@ -1030,12 +923,18 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             for the shown time-window.
         check_nan : bool
             If to check for NaN-values.
+        apply_preproc : str
+            If 'global' (default), preprocessing steps are applied on all data
+            and are repeated only if necessary. If 'local', preprocessing is
+            applied only on the visible data.
         """
         BrowserBase.__init__(self, **kwargs)
         QMainWindow.__init__(self)
 
-        # Initialize Attributes
+        # Initialize data
         self._update_data()
+
+        # Initialize Attributes
         time_decimals = int(np.ceil(np.log10(self.mne.inst.info['sfreq'])))
 
         # Initialize Annotations (ToDo: Adjust to MPL)
@@ -1052,14 +951,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         selected_region = None
         regions = list()
 
-        ds = ds
-        ds_method = ds_method
-        ds_chunk_size = ds_chunk_size
         setConfigOption('antialias', antialiasing)
-        show_annotations = show_annotations
-        enable_ds_cache = enable_ds_cache
-        tsteps_per_window = tsteps_per_window
-        check_nan = check_nan
 
         # Initialize Keyboard-Shortcuts
         is_mac = platform.system() == 'Darwin'
@@ -1101,7 +993,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                               show_annotations=show_annotations,
                               enable_ds_cache=enable_ds_cache,
                               tsteps_per_window=tsteps_per_window,
-                              check_nan=check_nan,
+                              check_nan=check_nan, apply_preproc=apply_preproc,
                               keyboard_shortcuts=keyboard_shortcuts)
 
         # Create centralWidget and layout
@@ -1207,6 +1099,91 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.channel_bar.update_value_external(yrange)
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+    # DATA HANDLING
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+    def _get_downsampling(self):
+        # Auto-Downsampling from pyqtgraph
+        ds = self.mne.ds if isinstance(self.mne.ds, int) else 1
+        if self.mne.ds == 'auto':
+            vb = self.mne.viewbox
+            if vb is not None:
+                view_range = vb.viewRect()
+            else:
+                view_range = None
+            if view_range is not None and len(self.mne.times) > 1:
+                dx = float(self.mne.times[-1] - self.mne.times[0]) / (
+                        len(self.mne.times) - 1)
+                if dx != 0.0:
+                    x0 = view_range.left() / dx
+                    x1 = view_range.right() / dx
+                    width = vb.width()
+                    if width != 0.0:
+                        # Auto-Downsampling with 5 samples per pixel
+                        ds = int(max(1, (x1 - x0) / (width * 5)))
+
+        return ds
+
+    def _downsample(self, xin, yin):
+        if self.ds_method == 'subsample':
+            xout = xin[::self.ds]
+            yout = yin[::self.ds]
+
+        elif self.ds_method == 'mean':
+            n = len(xin) // self.ds
+            # start of x-values; try to select a somewhat centered point
+            stx = self.ds // 2
+            xout = xin[stx:stx + n * self.ds:self.ds]
+            yout = yin[:n * self.ds].reshape(n, self.ds).mean(axis=1)
+
+        elif self.ds_method == 'peak':
+            n = len(xin) // self.ds
+            # start of x-values; try to select a somewhat centered point
+            stx = self.ds // 2
+
+            x1 = np.empty((n, 2))
+            x1[:] = xin[stx:stx + n * self.ds:self.ds, np.newaxis]
+            xout = x1.reshape(n * 2)
+
+            y1 = np.empty((n, 2))
+            y2 = yin[:n * self.ds].reshape((n, self.ds))
+            y1[:, 0] = y2.max(axis=1)
+            y1[:, 1] = y2.min(axis=1)
+            yout = y1.reshape(n * 2)
+
+        return xout, yout
+
+    def _update_data(self):
+        if self.mne.apply_preproc == 'global':
+            old_duration = self.mne.duration
+            self.mne.duration = self.mne.inst.times[-1]
+            self.mne.picks = np.arange(self.mne.ch_names.shape[0])
+            super()._update_data()
+            self.mne.duration = old_duration
+            self._update_picks()
+
+            if self.mne.ds not in [None, 1]:
+                if self.mne.ds in self.mne.ds_cache:
+                    x, y = self.ds_cache[self.ds]
+                else:
+                    x, y = self._downsample(self.mne.times, self.mne.data)
+                    if self.mne.enable_ds_cache:
+                        self.ds_cache[self.ds] = (x, y)
+
+                min_ix = np.argmin(abs(x - xmin))
+                max_ix = np.argmin(abs(x - xmax))
+
+                x = x[min_ix:max_ix]
+                y = y[min_ix:max_ix]
+
+        else:
+            super()._update_data()
+            x, y = self._downsample(self.mne.times, self.mne.data)
+            if self.mne.ds not in [None, 1]:
+                x, y = self._downsample(self.mne.times, self.mne.data)
+
+
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # ANNOTATIONS
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     def get_color(self, description):
@@ -1261,7 +1238,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Remove from annotations
         idx = self._get_onset_idx(region.getRegion()[0])
-        self.annotations.delete(idx)
+        self.mne.annotations.delete(idx)
 
     def region_selected(self, region):
         old_region = self.mne.selected_region
@@ -1274,7 +1251,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.fig_annotation.update_values(region)
 
     def _get_onset_idx(self, onset):
-        idx = np.where(np.around(self.annotations.onset - self.first_time,
+        idx = np.where(np.around(self.mne.annotations.onset - self.first_time,
                                  self.time_decimals) == onset)
         return idx
 
@@ -1287,15 +1264,15 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.fig_annotation.update_values(region)
 
         # Change annotations
-        self.annotations.onset[idx] = round(rgn[0] + self.first_time,
+        self.mne.annotations.onset[idx] = round(rgn[0] + self.first_time,
                                             self.time_decimals)
-        self.annotations.duration[idx] = rgn[1] - rgn[0]
+        self.mne.annotations.duration[idx] = rgn[1] - rgn[0]
 
     def update_annot_range(self, xmin, xmax):
-        inside_onsets = self.annotations.onset[
-            np.where((self.annotations.onset + self.annotations.duration
+        inside_onsets = self.mne.annotations.onset[
+            np.where((self.mne.annotations.onset + self.mne.annotations.duration
                       >= xmin + self.first_time) &
-                     (self.annotations.onset < xmax + self.first_time))[0]]
+                     (self.mne.annotations.onset < xmax + self.first_time))[0]]
         inside_onsets = [round(io - self.first_time, self.time_decimals)
                          for io in inside_onsets]
         rm_regions = [r for r in self.mne.regions
@@ -1316,7 +1293,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def add_annotation(self, onset, duration, region=None):
         """Add annotation to Annotations (onset is here the onset
         in the plot which is then adjusted with first_time)"""
-        self.annotations.append(onset + self.first_time, duration,
+        self.mne.annotations.append(onset + self.first_time, duration,
                                 self.mne.current_description)
         self.add_region(onset, duration, self.mne.current_description, region)
         self.update_annot_range(*self.mne.plt.viewRange()[0])
