@@ -1,3 +1,8 @@
+# Week 10
+## Monday, 2021-08-09
+- continued WIP of adapation of pyqtgraph-prototpy (updating traces, 
+  downsampling, local vs. global preprocessing)
+
 # Week 9
 ## Friday, 2021-08-06
 - worked on adaption and generalization of data-loading in pyqtgraph and 
