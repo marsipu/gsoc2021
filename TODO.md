@@ -59,3 +59,4 @@
 - [ ] Tooltip/Crosshair at cursor which shows time/value under cursor-tip (prerequisite: handle different channel-scales)
 - [ ] OverviewBar (GFP, zscore, etc.)
 - [ ] Dark Mode
+- [ ] Interactive Filter-Settings
