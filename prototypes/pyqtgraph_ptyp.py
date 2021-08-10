@@ -114,8 +114,9 @@ class TimeAxis(AxisItem):
 class ChannelAxis(AxisItem):
     """The Y-Axis displaying the channel-names."""
 
-    def __init__(self, mne):
-        self.mne = mne
+    def __init__(self, main):
+        self.main = main
+        self.mne = main.mne
         self.ch_texts = dict()
         super().__init__(orientation='left')
 
@@ -158,7 +159,7 @@ class ChannelAxis(AxisItem):
             print(f'{ch_name} clicked!')
             line = [li for li in self.mne.traces
                     if li.ch_name == ch_name][0]
-            self.mne.plt.toggle_bad_channel(line)
+            self.main.toggle_bad_channel(line)
         # return super().mouseClickEvent(event)
 
 
@@ -198,7 +199,7 @@ class TimeScrollBar(QScrollBar):
         new_step_factor = self.mne.tsteps_per_window / self.mne.duration
         if new_step_factor != self.step_factor:
             self.step_factor = new_step_factor
-            new_maximum = int((self.mne.plt.xmax - self.mne.duration)
+            new_maximum = int((self.mne.xmax - self.mne.duration)
                               * self.step_factor)
             self.setMaximum(new_maximum)
 
@@ -215,7 +216,6 @@ class ChannelScrollBar(QScrollBar):
         self.mne = mne
 
         self.setMinimum(0)
-        self.setMaximum(self.mne.plt.ymax - self.mne.n_channels - 1)
         self.update_nchan()
         self.setSingleStep(1)
         self.setFocusPolicy(Qt.WheelFocus)
@@ -241,7 +241,7 @@ class ChannelScrollBar(QScrollBar):
 
     def update_nchan(self):
         self.setPageStep(self.mne.n_channels)
-        self.setMaximum(self.mne.plt.ymax - self.mne.n_channels - 1)
+        self.setMaximum(self.mne.ymax - self.mne.n_channels - 1)
 
     def keyPressEvent(self, event):
         # Let main handle the keypress
@@ -269,7 +269,8 @@ class RawViewBox(ViewBox):
                 if event.isStart():
                     self._drag_start = self.mapSceneToView(
                         event.scenePos()).x()
-                    self._drag_region = AnnotRegion(description=description,
+                    self._drag_region = AnnotRegion(self.mne,
+                                                    description=description,
                                                     values=(self._drag_start,
                                                             self._drag_start),
                                                     color=self.main.get_color(
@@ -297,17 +298,17 @@ class RawViewBox(ViewBox):
         # If we want the context-menu back, uncomment following line
         # super().mouseClickEvent(event)
         if event.button() == Qt.LeftButton:
-            self.mne.plt.add_vline(self.mapSceneToView(event.scenePos()).x())
+            self.main.add_vline(self.mapSceneToView(event.scenePos()).x())
         elif event.button() == Qt.RightButton:
-            self.mne.plt.remove_vline()
+            self.main.remove_vline()
 
     def wheelEvent(self, ev, axis=None):
         ev.accept()
         scroll = -1 * ev.delta() / 120
         if ev.orientation() == Qt.Horizontal:
-            self.mne.plt.hscroll(scroll * 10)
+            self.main.hscroll(scroll * 10)
         elif ev.orientation() == Qt.Vertical:
-            self.mne.plt.vscroll(scroll)
+            self.main.vscroll(scroll)
 
 
 class VLineLabel(InfLineLabel):
@@ -370,18 +371,17 @@ class AnnotRegion(LinearRegionItem):
     gotSelected = Signal(object)
     removeRequested = Signal(object)
 
-    def __init__(self, description, values, color, time_decimals):
+    def __init__(self, mne, description, values, color, time_decimals):
 
         super().__init__(values=values, orientation='vertical',
                          movable=True, swapMode='sort')
 
         self.sigRegionChangeFinished.connect(self._region_changed)
-
+        self.mne = mne
         self.description = description
-        self.time_decimals = time_decimals
+        self.mne.time_decimals = time_decimals
         self.old_onset = values[0]
         self.selected = False
-        self.setToolTip(description)
 
         self.label_item = TextItem(text=description, anchor=(0.5, 0.5))
         self.label_item.setFont(QFont('AnyStyle', 10, QFont.Bold))
@@ -394,7 +394,7 @@ class AnnotRegion(LinearRegionItem):
         self.old_onset = self.getRegion()[0]
 
     def getRegion(self):
-        rgn = tuple([round(r, self.time_decimals)
+        rgn = tuple([round(r, self.mne.time_decimals)
                      for r in super().getRegion()])
         return rgn
 
@@ -637,189 +637,6 @@ class AnnotationDock(QDockWidget):
         self.stop_bx.setValue(0)
 
 
-class RawPlot(PlotItem):
-    """
-    Plots and manages data traces.
-    """
-
-    def __init__(self, mne, **kwargs):
-        self.mne = mne
-        super().__init__(**kwargs)
-
-        # Additional GraphicsItems
-        self.annot_mode_hint = None
-
-        # Pointers for continous scrolling
-        self._hscroll_dir = 1
-        self._vscroll_dir = 1
-
-        # Hide AutoRange-Button
-        self.hideButtons()
-
-        # Configure XY-Range
-        self.xmax = self.mne.inst.times[-1]
-        self.setXRange(0, self.mne.duration, padding=0)
-        # Add one empty line as padding at top (y=0).
-        # Negative Y-Axis to display channels from top.
-        self.ymax = len(self.mne.inst.ch_names) + 1
-        self.setYRange(0, self.mne.n_channels + 1, padding=0)
-        self.setLimits(xMin=0, xMax=self.xmax,
-                       yMin=0, yMax=self.ymax)
-        self.setLabel('bottom', 'Time', 's')
-
-        # Add traces
-        for ch_idx in self.mne.picks:
-            self.add_trace(ch_idx)
-
-    def add_trace(self, ch_idx):
-        trace = RawTraceItem(self.mne, ch_idx)
-
-        # Apply scaling
-        transform = self._get_scale_transform()
-        trace.setTransform(transform)
-
-        # Add Item early to have access to viewBox
-        self.addItem(trace)
-        self.mne.traces.append(trace)
-
-        trace.sigClicked.connect(lambda line, _: self.toggle_bad_channel(line))
-
-    def toggle_bad_channel(self, line):
-        if line.ch_name in self.mne.inst.info['bads']:
-            self.mne.inst.info['bads'].remove(line.ch_name)
-            line.isbad = False
-            print(f'{line.ch_name} removed from bad channels!')
-        else:
-            self.mne.inst.info['bads'].append(line.ch_name)
-            line.isbad = True
-            print(f'{line.ch_name} added to bad channels!')
-
-        # Update line color
-        line.update_bad_color()
-
-        # Update Channel-Axis
-        self.mne.ch_ax.redraw()
-
-    def remove_trace(self, trace):
-        self.removeItem(trace)
-        self.mne.traces.remove(trace)
-
-    def _get_scale_transform(self):
-        transform = QTransform()
-        transform.scale(1, self.mne.scale_factor)
-
-        return transform
-
-    def scale_all(self, step):
-        self.mne.scale_factor *= 2 ** step
-        transform = self._get_scale_transform()
-
-        for line in self.mne.traces:
-            line.setTransform(transform)
-
-    def hscroll(self, step):
-        rel_step = step * self.mne.duration / self.mne.tsteps_per_window
-        # Get current range and add step to it
-        xmin, xmax = [i + rel_step for i in self.vb.viewRange()[0]]
-
-        if xmin < 0:
-            xmin = 0
-            xmax = xmin + self.mne.duration
-        elif xmax > self.xmax:
-            xmax = self.xmax
-            xmin = xmax - self.mne.duration
-
-        self.setXRange(xmin, xmax, padding=0)
-
-    def infini_hscroll(self, step):
-        vr = self.mne.viewbox.viewRange()
-        rel_step = self.mne.duration * step / self.mne.tsteps_per_window
-        if vr[0][1] + rel_step > self.xmax or vr[0][0] - rel_step < 0:
-            self._hscroll_dir *= -1
-        step *= self._hscroll_dir
-        self.hscroll(step)
-
-    def vscroll(self, step):
-        # Get current range and add step to it
-        ymin, ymax = [i + step for i in self.vb.viewRange()[1]]
-
-        if ymin < 0:
-            ymin = 0
-            ymax = self.mne.n_channels + 1
-        elif ymax > self.ymax:
-            ymax = self.ymax
-            ymin = ymax - self.mne.n_channels - 1
-
-        self.setYRange(ymin, ymax, padding=0)
-
-    def infini_vscroll(self, step):
-        vr = self.mne.viewbox.viewRange()
-        if vr[1][1] + step > self.ymax or vr[1][0] - step < 0:
-            self._vscroll_dir *= -1
-        step *= self._vscroll_dir
-        self.vscroll(step)
-
-    def change_duration(self, step):
-        rel_step = (self.mne.duration * step) / (
-                self.mne.tsteps_per_window * 2)
-        xmin, xmax = self.vb.viewRange()[0]
-        xmax += rel_step
-        xmin -= rel_step
-
-        if xmax > self.xmax:
-            xmax = self.xmax
-
-        if xmin < 0:
-            xmin = 0
-
-        self.mne.duration = xmax - xmin
-
-        self.setXRange(xmin, xmax, padding=0)
-
-    def change_nchan(self, step):
-        ymin, ymax = self.vb.viewRange()[1]
-        ymax += step
-        if ymax > self.ymax:
-            ymax = self.ymax
-            ymin -= step
-
-        if ymin < 0:
-            ymin = 0
-
-        if ymax - ymin <= 2:
-            ymax = ymin + 2
-
-        self.mne.n_channels = ymax - ymin - 1
-
-        self.setYRange(ymin, ymax, padding=0)
-
-    def remove_vline(self):
-        if self.vline:
-            self.removeItem(self.vline)
-
-    def add_vline(self, pos):
-        # Remove vline if already shown
-        self.remove_vline()
-
-        self.vline = VLine(pos, bounds=(0, self.xmax))
-        self.addItem(self.vline)
-
-    def toggle_annot_hint(self, annotation_mode):
-        if annotation_mode:
-            self.annot_mode_hint = TextItem('Annotation-Mode', color='r',
-                                            anchor=(0, 0))
-            self.annot_mode_hint.setPos(0, 0)
-            self.annot_mode_hint.setFont(QFont('AnyStyle', 20, QFont.Bold))
-            self.addItem(self.annot_mode_hint)
-        elif self.annot_mode_hint:
-            self.removeItem(self.annot_mode_hint)
-            self.annot_mode_hint = None
-
-    def keyPressEvent(self, event):
-        # Let main handle the keypress
-        event.ignore()
-
-
 class BrowserView(GraphicsView):
     """Customized View as part of GraphicsView-Framework."""
 
@@ -855,7 +672,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                  antialiasing=False, use_opengl=True,
                  show_annotations=True, enable_ds_cache=True,
                  tsteps_per_window=100, check_nan=False,
-                 apply_preproc='global', **kwargs):
+                 apply_preproc='local', **kwargs):
         """
         PyQtGraph-Prototype as a new backend for inst.plot() from MNE-Python.
 
@@ -921,6 +738,10 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.time_decimals = int(np.ceil(
             np.log10(self.mne.inst.info['sfreq'])))
 
+        # Pointers for continous scrolling
+        self.mne.hscroll_dir = 1
+        self.mne.vscroll_dir = 1
+
         # Initialize Annotations (ToDo: Adjust to MPL)
         self.mne.annotation_mode = False
         self.mne.annotations = self.mne.inst.annotations
@@ -969,17 +790,33 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Initialize Axis-Items
         time_ax = TimeAxis(self.mne)
-        ch_ax = ChannelAxis(self.mne)
+        ch_ax = ChannelAxis(self)
         viewbox = RawViewBox(self)
         vars(self.mne).update(time_ax=time_ax, ch_ax=ch_ax, viewbox=viewbox)
 
         # Initialize data
         self._update_data()
 
-        # Initialize Line-Plot
-        plt = RawPlot(self.mne, viewBox=viewbox,
-                      axisItems={'bottom': time_ax, 'left': ch_ax})
+        # Initialize Trace-Plot
+        plt = PlotItem(viewBox=viewbox,
+                       axisItems={'bottom': time_ax, 'left': ch_ax})
+        # Hide AutoRange-Button
+        plt.hideButtons()
+        # Configure XY-Range
+        self.mne.xmax = self.mne.inst.times[-1]
+        plt.setXRange(0, self.mne.duration, padding=0)
+        # Add one empty line as padding at top (y=0).
+        # Negative Y-Axis to display channels from top.
+        self.mne.ymax = len(self.mne.inst.ch_names) + 1
+        plt.setYRange(0, self.mne.n_channels + 1, padding=0)
+        plt.setLimits(xMin=0, xMax=self.mne.xmax,
+                      yMin=0, yMax=self.mne.ymax)
+        plt.setLabel('bottom', 'Time', 's')
         vars(self.mne).update(plt=plt)
+
+        # Add traces
+        for ch_idx in self.mne.picks:
+            self.add_trace(ch_idx)
 
         # Check for OpenGL
         try:
@@ -1013,37 +850,41 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         fig_annotation.setVisible(False)
         vars(self.mne).update(fig_annotation=fig_annotation)
 
-        # Initialize other widgets associated to annoations.
+        # Initialize other widgets associated to annotations.
+        self.annot_mode_hint = None
         self.change_annot_mode()
 
         if self.mne.show_annotations:
             # Add all annotation-regions to a list and plot the visible ones.
             for annot in self.mne.annotations:
                 onset = round(annot['onset'] - self.mne.first_time,
-                              self.time_decimals)
-                duration = round(annot['duration'], self.time_decimals)
+                              self.mne.time_decimals)
+                duration = round(annot['duration'], self.mne.time_decimals)
                 description = annot['description']
                 self.add_region(onset, duration, description)
+
+        # Initialize VLine
+        self.mne.vline = None
 
         # Initialize Toolbar
         toolbar = self.addToolBar('Tools')
 
         adecr_time = QAction('-Time', parent=self)
-        adecr_time.triggered.connect(partial(plt.change_duration,
+        adecr_time.triggered.connect(partial(self.change_duration,
                                              -self.mne.tsteps_per_window / 10))
         toolbar.addAction(adecr_time)
 
         aincr_time = QAction('+Time', parent=self)
-        aincr_time.triggered.connect(partial(plt.change_duration,
+        aincr_time.triggered.connect(partial(self.change_duration,
                                              self.mne.tsteps_per_window / 10))
         toolbar.addAction(aincr_time)
 
         adecr_nchan = QAction('-Channels', parent=self)
-        adecr_nchan.triggered.connect(partial(plt.change_nchan, -10))
+        adecr_nchan.triggered.connect(partial(self.change_nchan, -10))
         toolbar.addAction(adecr_nchan)
 
         aincr_nchan = QAction('+Channels', parent=self)
-        aincr_nchan.triggered.connect(partial(plt.change_nchan, 10))
+        aincr_nchan.triggered.connect(partial(self.change_nchan, 10))
         toolbar.addAction(aincr_nchan)
 
         atoggle_annot = QAction('Toggle Annotations', parent=self)
@@ -1059,6 +900,151 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             plt=plt, view=view, time_bar=time_bar, channel_bar=channel_bar,
             fig_annotation=fig_annotation, toolbar=toolbar
         )
+
+    def _get_scale_transform(self):
+        transform = QTransform()
+        transform.scale(1, self.mne.scale_factor)
+
+        return transform
+
+    def toggle_bad_channel(self, line):
+        if line.ch_name in self.mne.inst.info['bads']:
+            self.mne.inst.info['bads'].remove(line.ch_name)
+            line.isbad = False
+            print(f'{line.ch_name} removed from bad channels!')
+        else:
+            self.mne.inst.info['bads'].append(line.ch_name)
+            line.isbad = True
+            print(f'{line.ch_name} added to bad channels!')
+
+        # Update line color
+        line.update_bad_color()
+
+        # Update Channel-Axis
+        self.mne.ch_ax.redraw()
+
+    def add_trace(self, ch_idx):
+        trace = RawTraceItem(self.mne, ch_idx)
+
+        # Apply scaling
+        transform = self._get_scale_transform()
+        trace.setTransform(transform)
+
+        # Add Item early to have access to viewBox
+        self.mne.plt.addItem(trace)
+        self.mne.traces.append(trace)
+
+        trace.sigClicked.connect(lambda tr, _: self.toggle_bad_channel(tr))
+
+    def remove_trace(self, trace):
+        self.mne.plt.removeItem(trace)
+        self.mne.traces.remove(trace)
+
+    def scale_all(self, step):
+        self.mne.scale_factor *= 2 ** step
+        transform = self._get_scale_transform()
+
+        for line in self.mne.traces:
+            line.setTransform(transform)
+
+    def hscroll(self, step):
+        rel_step = step * self.mne.duration / self.mne.tsteps_per_window
+        # Get current range and add step to it
+        xmin, xmax = [i + rel_step for i in self.mne.viewbox.viewRange()[0]]
+
+        if xmin < 0:
+            xmin = 0
+            xmax = xmin + self.mne.duration
+        elif xmax > self.mne.xmax:
+            xmax = self.mne.xmax
+            xmin = xmax - self.mne.duration
+
+        self.mne.plt.setXRange(xmin, xmax, padding=0)
+
+    def infini_hscroll(self, step):
+        vr = self.mne.viewbox.viewRange()
+        rel_step = self.mne.duration * step / self.mne.tsteps_per_window
+        if vr[0][1] + rel_step > self.mne.xmax or vr[0][0] - rel_step < 0:
+            self.mne.hscroll_dir *= -1
+        step *= self.mne.hscroll_dir
+        self.hscroll(step)
+
+    def vscroll(self, step):
+        # Get current range and add step to it
+        ymin, ymax = [i + step for i in self.mne.viewbox.viewRange()[1]]
+
+        if ymin < 0:
+            ymin = 0
+            ymax = self.mne.n_channels + 1
+        elif ymax > self.mne.ymax:
+            ymax = self.mne.ymax
+            ymin = ymax - self.mne.n_channels - 1
+
+        self.mne.plt.setYRange(ymin, ymax, padding=0)
+
+    def infini_vscroll(self, step):
+        vr = self.mne.viewbox.viewRange()
+        if vr[1][1] + step > self.mne.ymax or vr[1][0] - step < 0:
+            self.mne.vscroll_dir *= -1
+        step *= self.mne.vscroll_dir
+        self.vscroll(step)
+
+    def change_duration(self, step):
+        rel_step = (self.mne.duration * step) / (
+                self.mne.tsteps_per_window * 2)
+        xmin, xmax = self.mne.viewbox.viewRange()[0]
+        xmax += rel_step
+        xmin -= rel_step
+
+        if xmax > self.mne.xmax:
+            xmax = self.mne.xmax
+
+        if xmin < 0:
+            xmin = 0
+
+        self.mne.duration = xmax - xmin
+        self._update_data()
+        self.mne.plt.setXRange(xmin, xmax, padding=0)
+
+    def change_nchan(self, step):
+        ymin, ymax = self.mne.viewbox.viewRange()[1]
+        ymax += step
+        if ymax > self.mne.ymax:
+            ymax = self.mne.ymax
+            ymin -= step
+
+        if ymin < 0:
+            ymin = 0
+
+        if ymax - ymin <= 2:
+            ymax = ymin + 2
+
+        self.mne.n_channels = ymax - ymin - 1
+        self._update_picks()
+        self._update_data()
+        self.mne.plt.setYRange(ymin, ymax, padding=0)
+
+    def remove_vline(self):
+        if self.mne.vline:
+            self.mne.plt.removeItem(self.mne.vline)
+
+    def add_vline(self, pos):
+        # Remove vline if already shown
+        self.remove_vline()
+
+        self.mne.vline = VLine(pos, bounds=(0, self.mne.xmax))
+        self.mne.plt.addItem(self.mne.vline)
+
+    def toggle_annot_hint(self, annotation_mode):
+        if annotation_mode:
+            self.annot_mode_hint = TextItem('Annotation-Mode', color='r',
+                                            anchor=(0, 0))
+            self.annot_mode_hint.setPos(0, 0)
+            self.annot_mode_hint.setFont(QFont('AnyStyle', 20, QFont.Bold))
+            self.mne.plt.addItem(self.annot_mode_hint)
+        elif self.annot_mode_hint:
+            self.mne.plt.removeItem(self.annot_mode_hint)
+            self.annot_mode_hint = None
 
     def xrange_changed(self, _, xrange):
         # Update data
@@ -1094,14 +1080,14 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             # Only remove from traces not in picks.
             remove_traces = off_traces[:abs(trace_diff)]
             for trace in remove_traces:
-                self.mne.plt.remove_trace(trace)
+                self.remove_trace(trace)
                 off_traces.remove(trace)
         # Add new traces if necessary.
         if trace_diff > 0:
             # Make copy to avoid jumping iteration.
             idxs_copy = add_idxs.copy()
             for aidx in idxs_copy:
-                self.mne.plt.add_trace(aidx)
+                self.add_trace(aidx)
                 add_idxs.remove(aidx)
 
         # Update data of traces outside of yrange
@@ -1249,11 +1235,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def get_color(self, description):
         # As in matplotlib-backend
         if any([b in description for b in ['bad', 'BAD', 'Bad']]):
-            color = self.red
+            color = self.mne.red
         elif description in self.mne.annot_color_mapping:
             color = self.mne.annot_color_mapping[description]
         else:
-            color = next(self.color_cycle)
+            color = next(self.mne.color_cycle)
         self.mne.annot_color_mapping[description] = color
         return color
 
@@ -1266,18 +1252,18 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def add_region(self, onset, duration, description, region=None):
         color = self.get_color(description)
         if not region:
-            region = AnnotRegion(description=description,
+            region = AnnotRegion(self.mne, description=description,
                                  values=(onset, onset + duration),
                                  color=color,
-                                 time_decimals=self.time_decimals)
+                                 time_decimals=self.mne.time_decimals)
         region.regionChangeFinished.connect(self.region_changed)
         region.gotSelected.connect(self.region_selected)
         region.removeRequested.connect(self.remove_region)
-        self.mne.plt.getViewBox().sigYRangeChanged.connect(
+        self.mne.viewbox.sigYRangeChanged.connect(
             region.change_label_pos)
         self.mne.regions.append(region)
 
-        xrange = self.mne.plt.getViewBox().viewRange()[0]
+        xrange = self.mne.viewbox.viewRange()[0]
         if xrange[0] < onset < xrange[1] \
                 and region not in self.mne.plt.items:
             self.mne.plt.addItem(region)
@@ -1287,8 +1273,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
     def remove_region(self, region):
         # Remove from shown regions
-        if region.label_item in self.mne.plt.getViewBox().addedItems:
-            self.mne.plt.getViewBox().removeItem(region.label_item)
+        if region.label_item in self.mne.viewbox.addedItems:
+            self.mne.viewbox.removeItem(region.label_item)
         if region in self.mne.plt.items:
             self.mne.plt.removeItem(region)
 
@@ -1312,7 +1298,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
     def _get_onset_idx(self, onset):
         idx = np.where(np.around(self.mne.annotations.onset - self.mne.first_time,
-                                 self.time_decimals) == onset)
+                                 self.mne.time_decimals) == onset)
         return idx
 
     def region_changed(self, region):
@@ -1325,7 +1311,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Change annotations
         self.mne.annotations.onset[idx] = round(rgn[0] + self.mne.first_time,
-                                                self.time_decimals)
+                                                self.mne.time_decimals)
         self.mne.annotations.duration[idx] = rgn[1] - rgn[0]
 
     def update_annot_range(self, xmin, xmax):
@@ -1334,7 +1320,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                 (self.mne.annotations.onset + self.mne.annotations.duration
                  >= xmin + self.mne.first_time) &
                 (self.mne.annotations.onset < xmax + self.mne.first_time))[0]]
-        inside_onsets = [round(io - self.mne.first_time, self.time_decimals)
+        inside_onsets = [round(io - self.mne.first_time, self.mne.time_decimals)
                          for io in inside_onsets]
         rm_regions = [r for r in self.mne.regions
                       if r.getRegion()[0] not in inside_onsets
@@ -1377,7 +1363,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                 self.mne.selected_region = None
 
             # Show label for Annotation-Mode.
-            self.mne.plt.toggle_annot_hint(self.mne.annotation_mode)
+            self.toggle_annot_hint(self.mne.annotation_mode)
 
     def toggle_annotation_mode(self):
         self.mne.annotation_mode = not self.mne.annotation_mode
@@ -1412,48 +1398,48 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         big_t = 10
         if event.key() == Qt.Key_Left:
             if '4' in modhex:
-                self.mne.plt.hscroll(-lil_t)
+                self.hscroll(-lil_t)
             else:
-                self.mne.plt.hscroll(-big_t)
+                self.hscroll(-big_t)
         elif event.key() == Qt.Key_Right:
             if '4' in modhex:
-                self.mne.plt.hscroll(lil_t)
+                self.hscroll(lil_t)
             else:
-                self.mne.plt.hscroll(big_t)
+                self.hscroll(big_t)
         elif event.key() == Qt.Key_Up:
             if '4' in modhex:
-                self.mne.plt.vscroll(-1)
+                self.vscroll(-1)
             else:
-                self.mne.plt.vscroll(-10)
+                self.vscroll(-10)
         elif event.key() == Qt.Key_Down:
             if '4' in modhex:
-                self.mne.plt.vscroll(1)
+                self.vscroll(1)
             else:
-                self.mne.plt.vscroll(10)
+                self.vscroll(10)
         elif event.key() == Qt.Key_Home:
             if '4' in modhex:
-                self.mne.plt.change_duration(-lil_t)
+                self.change_duration(-lil_t)
             else:
-                self.mne.plt.change_duration(-big_t)
+                self.change_duration(-big_t)
         elif event.key() == Qt.Key_End:
             if '4' in modhex:
-                self.mne.plt.change_duration(lil_t)
+                self.change_duration(lil_t)
             else:
-                self.mne.plt.change_duration(big_t)
+                self.change_duration(big_t)
         elif event.key() == Qt.Key_PageDown:
             if '4' in modhex:
-                self.mne.plt.change_nchan(-1)
+                self.change_nchan(-1)
             else:
-                self.mne.plt.change_nchan(-10)
+                self.change_nchan(-10)
         elif event.key() == Qt.Key_PageUp:
             if '4' in modhex:
-                self.mne.plt.change_nchan(1)
+                self.change_nchan(1)
             else:
-                self.mne.plt.change_nchan(10)
+                self.change_nchan(10)
         elif event.key() == Qt.Key_Comma:
-            self.mne.plt.scale_all(-1)
+            self.scale_all(-1)
         elif event.key() == Qt.Key_Period:
-            self.mne.plt.scale_all(1)
+            self.scale_all(1)
         elif event.key() == Qt.Key_A:
             self.toggle_annotation_mode()
         elif event.key() == Qt.Key_T:
