@@ -43,6 +43,9 @@
 - [X] Downsampling as in hdf5-example
 - [ ] Use numba (and other ideas as suggested in [#1478](https://github.com/pyqtgraph/pyqtgraph/issues/1478) from pyqtgraph)
 
+## Annotations
+- [ ] Edit description/color of single annotation
+
 ## User Interaction
 - [X] Arrow-Keys for left-right-movement
 - [X] Fix Arrow on MacOs
