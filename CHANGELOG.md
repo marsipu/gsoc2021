@@ -1,6 +1,12 @@
 # Week 10
+## Tuesday, 2021-08-10
+- fixed bugs from adaption of pyqtgraph-prototyp
+- improved performance in vertical scrolling by reusing existing 
+  RawTraceItems
+- dissolved RawPlot into Main-Class for less nesting
+
 ## Monday, 2021-08-09
-- continued WIP of adapation of pyqtgraph-prototpy (updating traces, 
+- continued WIP of adapation of pyqtgraph-prototyp (updating traces, 
   downsampling, local vs. global preprocessing)
 
 # Week 9
