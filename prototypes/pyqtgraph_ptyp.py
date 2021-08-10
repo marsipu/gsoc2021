@@ -22,22 +22,17 @@ from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
 from pyqtgraph.Qt.QtCore import Qt, Signal
 
 
-class RawCurveItem(PlotCurveItem):
+class RawTraceItem(PlotCurveItem):
     """Graphics-Object for single data trace."""
 
-    def __init__(self, mne, ch_idx, line_idx):
+    def __init__(self, mne, ch_idx):
         super().__init__(clickable=True)
         # ToDo: Does it affect performance, if the mne-object is referenced
-        #  to in every RawCurveItem?
+        #  to in every RawTraceItem?
         self.mne = mne
-        self.ch_idx = ch_idx
-        self.line_idx = line_idx
-        self.ch_name = self.mne.inst.ch_names[ch_idx]
-        self.ch_type = self.mne.ch_types[ch_idx]
-        self.color = self.mne.ch_color_dict[self.ch_type]
-        self.ypos = ch_idx + 1
         self.check_nan = self.mne.check_nan
-        self.isbad = self.ch_name in self.mne.inst.info['bads']
+
+        self.set_ch_idx(ch_idx)
         self.update_bad_color()
         self.set_data()
 
@@ -46,6 +41,14 @@ class RawCurveItem(PlotCurveItem):
             self.setPen('r')
         else:
             self.setPen(self.color)
+
+    def set_ch_idx(self, ch_idx):
+        self.ch_idx = ch_idx
+        self.ch_name = self.mne.inst.ch_names[ch_idx]
+        self.isbad = self.ch_name in self.mne.inst.info['bads']
+        self.ch_type = self.mne.ch_types[ch_idx]
+        self.color = self.mne.ch_color_dict[self.ch_type]
+        self.ypos = np.argwhere(self.mne.ch_order == self.ch_idx)[0][0] + 1
 
     def set_data(self):
         if self.check_nan:
@@ -58,14 +61,16 @@ class RawCurveItem(PlotCurveItem):
         if self.mne.apply_preproc == 'global':
             data = self.mne.data[self.ch_idx]
         else:
-            data = self.mne.data[self.line_idx]
+            # If local, ypos = index + 1 of data
+            data_idx = np.argwhere(self.mne.picks == self.ch_idx)[0][0]
+            data = self.mne.data[data_idx]
+
         self.setData(self.mne.times, data,
                      connect=connect, skipFiniteCheck=skip)
         self.setPos(0, self.ypos)
 
     def mouseClickEvent(self, ev):
-        if not self.clickable or ev.button() != \
-                Qt.MouseButton.LeftButton:
+        if not self.clickable or ev.button() != Qt.MouseButton.LeftButton:
             ev.ignore()
             return
         if self.mouseShape().contains(ev.pos()):
@@ -121,10 +126,8 @@ class ChannelAxis(AxisItem):
         return tick_values
 
     def tickStrings(self, values, scale, spacing):
-        if not isinstance(values, list):
-            values = [values]
         # Get channel-names
-        tick_strings = [self.mne.inst.ch_names[v - 1] for v in values]
+        tick_strings = self.mne.ch_names[self.mne.picks]
 
         return tick_strings
 
@@ -228,11 +231,11 @@ class ChannelScrollBar(QScrollBar):
         if not self.external_change:
             self.mne.plt.setYRange(new_ymin, new_ymax, padding=0)
 
-    def update_value_external(self, yrange):
+    def update_value_external(self, value):
         # Mark change as external to avoid setting YRange again in
         # channel_changed.
         self.external_change = True
-        self.setValue(yrange[0])
+        self.setValue(value)
         self.external_change = False
         self.update_nchan()
 
@@ -655,31 +658,31 @@ class RawPlot(PlotItem):
 
         # Configure XY-Range
         self.xmax = self.mne.inst.times[-1]
-        # Add one empty line as padding at top and bottom
-        self.ymax = len(self.mne.inst.ch_names) + 1
         self.setXRange(0, self.mne.duration, padding=0)
+        # Add one empty line as padding at top (y=0).
+        # Negative Y-Axis to display channels from top.
+        self.ymax = len(self.mne.inst.ch_names) + 1
         self.setYRange(0, self.mne.n_channels + 1, padding=0)
         self.setLimits(xMin=0, xMax=self.xmax,
                        yMin=0, yMax=self.ymax)
         self.setLabel('bottom', 'Time', 's')
 
         # Add traces
-        for line_idx, ch_idx in enumerate(self.mne.picks):
-            self.add_line(ch_idx, line_idx)
+        for ch_idx in self.mne.picks:
+            self.add_trace(ch_idx)
 
-    def add_line(self, ch_idx, line_idx):
-        item = RawCurveItem(self.mne, ch_idx, line_idx)
+    def add_trace(self, ch_idx):
+        trace = RawTraceItem(self.mne, ch_idx)
 
         # Apply scaling
         transform = self._get_scale_transform()
-        item.setTransform(transform)
+        trace.setTransform(transform)
 
         # Add Item early to have access to viewBox
-        self.addItem(item)
-        self.mne.traces.append(item)
+        self.addItem(trace)
+        self.mne.traces.append(trace)
 
-        item.sigClicked.connect(lambda line, _:
-                                self.toggle_bad_channel(line))
+        trace.sigClicked.connect(lambda line, _: self.toggle_bad_channel(line))
 
     def toggle_bad_channel(self, line):
         if line.ch_name in self.mne.inst.info['bads']:
@@ -697,9 +700,9 @@ class RawPlot(PlotItem):
         # Update Channel-Axis
         self.mne.ch_ax.redraw()
 
-    def remove_line(self, line):
-        self.removeItem(line)
-        self.mne.traces.remove(line)
+    def remove_trace(self, trace):
+        self.removeItem(trace)
+        self.mne.traces.remove(trace)
 
     def _get_scale_transform(self):
         transform = QTransform()
@@ -852,7 +855,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                  antialiasing=False, use_opengl=True,
                  show_annotations=True, enable_ds_cache=True,
                  tsteps_per_window=100, check_nan=False,
-                 apply_preproc='local', **kwargs):
+                 apply_preproc='global', **kwargs):
         """
         PyQtGraph-Prototype as a new backend for inst.plot() from MNE-Python.
 
@@ -1075,22 +1078,40 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             self.update_annot_range(*xrange)
 
     def yrange_changed(self, _, yrange):
-        # Update shown traces
-        new_ypos = list(range(round(yrange[0]) + 1, round(yrange[1])))
-        # Remove lines outside of view-range
-        remove_lines = [li for li in self.mne.traces
-                        if li.ypos not in new_ypos]
-        for rm_line in remove_lines:
-            self.mne.plt.remove_line(rm_line)
-        # Add new lines
-        add_idxs = [p - 1 for p in new_ypos if
-                    p not in [li.ypos for li in self.mne.traces]]
-        for aidx in add_idxs:
-            line_idx = int(aidx - yrange[0])  # + 1(line-puffer), -1(pos->idx)
-            self.mne.plt.add_line(aidx, line_idx)
+        # Update picks
+        self.mne.ch_start = int(yrange[0])
+        self._update_picks()
+        self._update_data()
+
+        off_traces = [tr for tr in self.mne.traces
+                      if tr.ch_idx not in self.mne.picks]
+        add_idxs = [p for p in self.mne.picks
+                    if p not in [tr.ch_idx for tr in self.mne.traces]]
+        # Update number of traces.
+        trace_diff = len(self.mne.traces) - len(self.mne.picks)
+        # Remove unnecessary traces.
+        if trace_diff < 0:
+            # Only remove from traces not in picks.
+            remove_traces = off_traces[:abs(trace_diff)]
+            for trace in remove_traces:
+                self.mne.plt.remove_trace(trace)
+                off_traces.remove(trace)
+        # Add new traces if necessary.
+        if trace_diff > 0:
+            # Make copy to avoid jumping iteration.
+            idxs_copy = add_idxs.copy()
+            for aidx in idxs_copy:
+                self.mne.plt.add_trace(aidx)
+                add_idxs.remove(aidx)
+
+        # Update data of traces outside of yrange
+        for trace, ch_idx in zip(off_traces, add_idxs):
+            trace.set_ch_idx(ch_idx)
+            trace.update_bad_color()
+            trace.set_data()
 
         # Update Channel-Bar
-        self.mne.channel_bar.update_value_external(yrange)
+        self.mne.channel_bar.update_value_external(yrange[0])
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # DATA HANDLING
@@ -1198,6 +1219,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
                 self.mne.global_changed = False
 
+                # Invert Data to be displayed from top on inverted Y-Axis.
+                self.mne.data *= -1
+
             # get start/stop-samples
             start_sec = self.mne.t_start - self.mne.first_time
             stop_sec = start_sec + self.mne.duration
@@ -1212,6 +1236,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         else:
             super()._update_data()
+
+            # Invert Data to be displayed from top on inverted Y-Axis.
+            self.mne.data *= -1
 
         # Apply Downsampling (if enabled)
         self._apply_downsampling()
@@ -1440,6 +1467,12 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         fig = fig or self
         fig.close()
 
+    def _get_size(self):
+        inch_width = self.width() / self.physicalDpiX()
+        inch_height = self.height() / self.physicalDpiY()
+
+        return inch_width, inch_height
+
     def _fake_keypress(self, key, fig=None):
         fig = fig or self
         QTest.keyPress(fig, qt_key_mapping[key])
@@ -1457,6 +1490,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def _resize_by_factor(self, factor):
         pass
 
+    def closeEvent(self, event):
+        event.accept()
+
+        self._close(event)
+
 
 qt_key_mapping = {
     'escape': Qt.Key_Escape
@@ -1470,5 +1508,8 @@ def _init_browser(inst, figsize, **kwargs):
 
     mkQApp()
     browser = PyQtGraphPtyp(inst=inst, figsize=figsize, **kwargs)
+    width = int(figsize[0] * browser.physicalDpiX())
+    height = int(figsize[1] * browser.physicalDpiY())
+    browser.resize(width, height)
 
     return browser
