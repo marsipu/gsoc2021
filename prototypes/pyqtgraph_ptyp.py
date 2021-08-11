@@ -58,7 +58,7 @@ class RawTraceItem(PlotCurveItem):
             connect = 'all'
             skip = True
 
-        if self.mne.apply_preproc == 'global':
+        if self.mne.preload:
             data = self.mne.data[self.ch_idx]
         else:
             # If local, ypos = index + 1 of data
@@ -82,6 +82,7 @@ class RawTraceItem(PlotCurveItem):
 
 class TimeAxis(AxisItem):
     """The X-Axis displaying the time."""
+
     def __init__(self, mne):
         self.mne = mne
         super().__init__(orientation='bottom')
@@ -196,6 +197,9 @@ class TimeScrollBar(QScrollBar):
         self.external_change = False
         self.update_duration()
 
+    def update_t_start(self):
+        self.update_value_external(self.mne.t_start)
+
     def update_duration(self):
         new_step_factor = self.mne.tsteps_per_window / self.mne.duration
         if new_step_factor != self.step_factor:
@@ -239,6 +243,9 @@ class ChannelScrollBar(QScrollBar):
         self.setValue(value)
         self.external_change = False
         self.update_nchan()
+
+    def update_ch_start(self):
+        self.update_value_external(self.mne.ch_start)
 
     def update_nchan(self):
         self.setPageStep(self.mne.n_channels)
@@ -669,28 +676,14 @@ class _PGMetaClass(type(BrowserBase), type(QMainWindow)):
 
 
 class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
-    def __init__(self, ds='auto', ds_method='peak', ds_chunk_size=None,
-                 antialiasing=False, use_opengl=True,
-                 show_annotations=True, enable_ds_cache=True,
-                 tsteps_per_window=100, check_nan=False,
-                 apply_preproc='local', **kwargs):
+    def __init__(self, **kwargs):
         """
         PyQtGraph-Prototype as a new backend for inst.plot() from MNE-Python.
+        """
 
-        Parameters
+        """
+        Defaults for special pyqtgraph-kwargs
         ----------
-        inst : mne.io.Raw
-            The Data-Instance (Raw, Epochs
-        data : np.ndarray
-            Scaled data in an array.
-        times : np.ndarray
-            Times in an array.
-        ch_types : np.ndarray
-            The channel-types in an array.
-        duration : int
-            The time-window to display in seconds.
-        n_channels : int
-            The number of channels to display in the window simultaneously.
         ds : int | str
             The downsampling-factor. Either 'auto' to get the downsampling-rate
             from the visible range or an integer (1 means no downsampling).
@@ -715,25 +708,31 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             for the shown time-window.
         check_nan : bool
             If to check for NaN-values.
-        apply_preproc : str
-            If 'global', preprocessing steps are applied on all data
-            and are repeated only if necessary. If 'local'(default),
+        preload : str
+            If True, preprocessing steps are applied on all data
+            and are repeated only if necessary. If False (default),
             preprocessing is applied only on the visible data.
         """
-        # Add defaults to kwargs to be passed to MNEBrowserParams
-        kwargs.update(ds=ds, ds_method=ds_method,
-                      ds_chunk_size=ds_chunk_size,
-                      show_annotations=show_annotations,
-                      enable_ds_cache=enable_ds_cache,
-                      ds_cache=dict(),
-                      tsteps_per_window=tsteps_per_window,
-                      check_nan=check_nan, apply_preproc=apply_preproc,
-                      global_changed=True)
+        self.pg_kwarg_defaults = dict(ds='auto',
+                                      ds_method='peak',
+                                      ds_chunk_size=None,
+                                      antialiasing=False,
+                                      use_opengl=True,
+                                      show_annotations=True,
+                                      enable_ds_cache=True,
+                                      tsteps_per_window=100,
+                                      check_nan=False,
+                                      remove_dc=True,
+                                      preload=False)
+        for kw in [k for k in self.pg_kwarg_defaults if k not in kwargs]:
+            kwargs[kw] = self.pg_kwarg_defaults[kw]
 
         BrowserBase.__init__(self, **kwargs)
         QMainWindow.__init__(self)
 
         # Initialize Attributes and add them to MNEBrowseParams
+        self.mne.ds_cache = dict()
+        self.mne.global_changed = True
         self.mne.traces = list()
         self.mne.scale_factor = 1
         self.mne.time_decimals = int(np.ceil(
@@ -758,7 +757,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.selected_region = None
         self.mne.regions = list()
 
-        setConfigOption('antialias', antialiasing)
+        setConfigOption('antialias', self.mne.antialiasing)
 
         # Initialize Keyboard-Shortcuts
         is_mac = platform.system() == 'Darwin'
@@ -791,6 +790,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Initialize Axis-Items
         time_ax = TimeAxis(self.mne)
+        time_ax.setLabel(text='Time', units='s')
         ch_ax = ChannelAxis(self)
         viewbox = RawViewBox(self)
         vars(self.mne).update(time_ax=time_ax, ch_ax=ch_ax, viewbox=viewbox)
@@ -812,7 +812,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         plt.setYRange(0, self.mne.n_channels + 1, padding=0)
         plt.setLimits(xMin=0, xMax=self.mne.xmax,
                       yMin=0, yMax=self.mne.ymax)
-        plt.setLabel('bottom', 'Time', 's')
         vars(self.mne).update(plt=plt)
 
         # Add traces
@@ -826,11 +825,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             logger.warning('pyopengl was not found on this device.\n'
                            'Defaulting to plot without OpenGL with reduced '
                            'performance.')
-            use_opengl = False
+            self.mne.use_opengl = False
 
         # Initialize BrowserView (inherits QGraphicsView)
         view = BrowserView(plt, background='w',
-                           useOpenGL=use_opengl)
+                           useOpenGL=self.mne.use_opengl)
         layout.addWidget(view, 0, 0)
 
         # Initialize Scroll-Bars
@@ -889,11 +888,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         toolbar.addAction(aincr_nchan)
 
         atoggle_annot = QAction('Toggle Annotations', parent=self)
-        atoggle_annot.triggered.connect(self.toggle_annotation_mode)
+        atoggle_annot.triggered.connect(self._toggle_annotation_fig)
         toolbar.addAction(atoggle_annot)
 
         ahelp = QAction('Help', parent=self)
-        ahelp.triggered.connect(partial(HelpDialog, self))
+        ahelp.triggered.connect(self._toggle_help_fig)
         toolbar.addAction(ahelp)
 
         # Add GUI-Elements to MNEBrowserParams-Instance
@@ -1003,8 +1002,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         if xmin < 0:
             xmin = 0
 
-        self.mne.duration = xmax - xmin
-        self._update_data()
         self.mne.plt.setXRange(xmin, xmax, padding=0)
 
     def change_nchan(self, step):
@@ -1020,9 +1017,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         if ymax - ymin <= 2:
             ymax = ymin + 2
 
-        self.mne.n_channels = round(ymax - ymin - 1)
-        self._update_picks()
-        self._update_data()
         self.mne.plt.setYRange(ymin, ymax, padding=0)
 
     def remove_vline(self):
@@ -1051,11 +1045,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         # Update data
         self.mne.t_start = xrange[0]
         self.mne.duration = xrange[1] - xrange[0]
-        self._update_data()
-
-        # Update data in traces
-        for trace in self.mne.traces:
-            trace.set_data()
+        self._redraw(update_data=True)
 
         # Update Time-Bar
         self.mne.time_bar.update_value_external(xrange)
@@ -1067,6 +1057,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def yrange_changed(self, _, yrange):
         # Update picks
         self.mne.ch_start = round(yrange[0])
+        self.mne.n_channels = round(yrange[1] - yrange[0] - 1)
         self._update_picks()
         self._update_data()
 
@@ -1085,7 +1076,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                 off_traces.remove(trace)
         # Add new traces if necessary.
         if trace_diff > 0:
-            # Make copy to avoid jumping iteration.
+            # Make copy to avoid skipping iteration.
             idxs_copy = add_idxs.copy()
             for aidx in idxs_copy:
                 self.add_trace(aidx)
@@ -1098,7 +1089,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             trace.set_data()
 
         # Update Channel-Bar
-        self.mne.channel_bar.update_value_external(yrange[0])
+        self.mne.channel_bar.update_ch_start()
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # DATA HANDLING
@@ -1177,13 +1168,13 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                     data = y1.reshape((n_ch, n * 2))
 
                 if self.mne.enable_ds_cache and \
-                        self.mne.apply_preproc == 'global':
+                        self.mne.preload:
                     self.mne.ds_cache[ds] = times, data
 
             self.mne.times, self.mne.data = times, data
 
     def _update_data(self):
-        if self.mne.apply_preproc == 'global':
+        if self.mne.preload:
             # This is just an experimental feature
             # which won't be further developed for now.
             # Data has to be reloaded and processed, when:
@@ -1196,7 +1187,10 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                 old_duration = self.mne.duration
                 self.mne.duration = self.mne.inst.times[-1]
                 self.mne.picks = np.arange(self.mne.ch_names.shape[0])
+                old_remove_dc = self.mne.remove_dc
+                self.mne.remove_dc = False
                 super()._update_data()
+                self.mne.remove_dc = old_remove_dc
                 # Store processed times and data
                 self.mne.global_data = self.mne.data
                 self.mne.global_times = self.mne.times
@@ -1220,6 +1214,13 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                     (start_sec, stop_sec))
             self.mne.times = self.mne.global_times[start:stop]
             self.mne.data = self.mne.global_data[:, start:stop]
+
+            # remove DC
+            if self.mne.remove_dc:
+                self.mne.data = self.mne.data - \
+                                self.mne.data.mean(axis=1, keepdims=True)
+            else:
+                self.mne.data = self.mne.global_data[:, start:stop]
 
         else:
             super()._update_data()
@@ -1298,8 +1299,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.fig_annotation.update_values(region)
 
     def _get_onset_idx(self, onset):
-        idx = np.where(np.around(self.mne.annotations.onset - self.mne.first_time,
-                                 self.mne.time_decimals) == onset)
+        idx = np.where(
+            np.around(self.mne.annotations.onset - self.mne.first_time,
+                      self.mne.time_decimals) == onset)
         return idx
 
     def region_changed(self, region):
@@ -1321,8 +1323,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                 (self.mne.annotations.onset + self.mne.annotations.duration
                  >= xmin + self.mne.first_time) &
                 (self.mne.annotations.onset < xmax + self.mne.first_time))[0]]
-        inside_onsets = [round(io - self.mne.first_time, self.mne.time_decimals)
-                         for io in inside_onsets]
+        inside_onsets = [
+            round(io - self.mne.first_time, self.mne.time_decimals)
+            for io in inside_onsets]
         rm_regions = [r for r in self.mne.regions
                       if r.getRegion()[0] not in inside_onsets
                       and r in self.mne.plt.items]
@@ -1349,6 +1352,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def change_annot_mode(self):
         if self.mne.show_annotations:
             if not self.mne.annotation_mode:
+                # Reset Widgets in Annotation-Figure
                 self.mne.fig_annotation.reset()
 
             # Show Annotation-Dock if activated.
@@ -1366,9 +1370,33 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             # Show label for Annotation-Mode.
             self.toggle_annot_hint(self.mne.annotation_mode)
 
-    def toggle_annotation_mode(self):
+    def _toggle_annotation_fig(self):
         self.mne.annotation_mode = not self.mne.annotation_mode
         self.change_annot_mode()
+
+    def _toggle_help_fig(self):
+        if self.mne.fig_help is None:
+            self.mne.fig_help = HelpDialog(self)
+        else:
+            self.mne.fig_help.close()
+            self.mne.fig_help = None
+
+    def _toggle_butterfly(self):
+        # ToDo: Still needs to be implemented
+        pass
+
+    def _toggle_dc(self):
+        self.mne.remove_dc = not self.mne.remove_dc
+        self._redraw()
+
+    def _toggle_time_format(self):
+        if self.mne.time_format == 'float':
+            self.mne.time_format = 'clock'
+            self.mne.time_ax.setLabel(text='Time')
+        else:
+            self.mne.time_format = 'float'
+            self.mne.time_ax.setLabel(text='Time', units='s')
+        self.mne.time_ax.refresh()
 
     def _update_trace_offsets(self):
         pass
@@ -1394,61 +1422,74 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         # On Unix GroupSwitchModifier is set when ctrl is pressed.
         # To preserve cross-platform consistency the following comparison
         # of the modifier-values is done.
-        modhex = hex(int(event.modifiers()))
+        shift_pressed = '4' in hex(int(event.modifiers()))
         lil_t = 1
         big_t = 10
         if event.key() == Qt.Key_Left:
-            if '4' in modhex:
+            if shift_pressed:
                 self.hscroll(-lil_t)
             else:
                 self.hscroll(-big_t)
         elif event.key() == Qt.Key_Right:
-            if '4' in modhex:
+            if shift_pressed:
                 self.hscroll(lil_t)
             else:
                 self.hscroll(big_t)
         elif event.key() == Qt.Key_Up:
-            if '4' in modhex:
+            if shift_pressed:
                 self.vscroll(-1)
             else:
                 self.vscroll(-10)
         elif event.key() == Qt.Key_Down:
-            if '4' in modhex:
+            if shift_pressed:
                 self.vscroll(1)
             else:
                 self.vscroll(10)
         elif event.key() == Qt.Key_Home:
-            if '4' in modhex:
+            if shift_pressed:
                 self.change_duration(-lil_t)
             else:
                 self.change_duration(-big_t)
         elif event.key() == Qt.Key_End:
-            if '4' in modhex:
+            if shift_pressed:
                 self.change_duration(lil_t)
             else:
                 self.change_duration(big_t)
         elif event.key() == Qt.Key_PageDown:
-            if '4' in modhex:
+            if shift_pressed:
                 self.change_nchan(-1)
             else:
                 self.change_nchan(-10)
         elif event.key() == Qt.Key_PageUp:
-            if '4' in modhex:
+            if shift_pressed:
                 self.change_nchan(1)
             else:
                 self.change_nchan(10)
-        elif event.key() == Qt.Key_Comma:
+        elif event.key() == Qt.Key_Minus:
             self.scale_all(-1)
-        elif event.key() == Qt.Key_Period:
+        elif event.key() == Qt.Key_Plus:
             self.scale_all(1)
         elif event.key() == Qt.Key_A:
-            self.toggle_annotation_mode()
+            self._toggle_annotation_fig()
         elif event.key() == Qt.Key_T:
-            if self.mne.time_format == 'clock':
-                self.mne.time_format = 'float'
+            self._toggle_time_format()
+        elif event.key() == Qt.Key_Question:
+            self._toggle_help_fig()
+        elif event.key() == Qt.Key_J:
+            if shift_pressed:
+                self._toggle_all_projs()
             else:
-                self.mne.time_format = 'clock'
-            self.mne.time_ax.refresh()
+                self._toggle_proj_fig()
+        elif event.key() == Qt.Key_D:
+            self._toggle_dc()
+
+    def _redraw(self, update_data=True):
+        if update_data:
+            self._update_data()
+
+        # Update data in traces
+        for trace in self.mne.traces:
+            trace.set_data()
 
     def _close_event(self, fig=None):
         fig = fig or self
