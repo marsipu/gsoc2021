@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
                              QListWidget, QMainWindow,
                              QMessageBox, QPushButton, QScrollArea,
                              QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
-                             QTabWidget)
+                             QTabWidget, QFileDialog)
 from mne.viz._figure import set_browser_backend
 from mne.viz.utils import _get_color_list
 from pyqtgraph import PlotDataItem, PlotWidget, mkPen, time, BarGraphItem, \
@@ -261,6 +261,7 @@ class BenchmarkWindow(QMainWindow):
         self.backend_name = 'pyqtgraph'
         self.backend_kwargs = dict()
 
+        self.raw_path = ''
         self.raw_test_path = join(os.getcwd(), 'test_raw.fif')
 
         self.load_backend()
@@ -297,18 +298,30 @@ class BenchmarkWindow(QMainWindow):
             del self.backend
 
         # Load Raw
-        if isfile(self.raw_test_path):
+        if isfile(self.raw_test_path) and isfile(self.raw_path):
+            # Compare
+            raw_test_info = mne.io.read_info(self.raw_test_path)
+            raw_info = mne.io.read_info(self.raw_path)
+
+            if raw_info['meas_date'] == raw_test_info['meas_date']:
+                raw_path = self.raw_test_path
+            else:
+                raw_path = self.raw_path
+        elif isfile(self.raw_test_path):
             raw_path = self.raw_test_path
+        elif isfile(self.raw_path):
+            raw_path = self.raw_path
         else:
             sample_data_folder = mne.datasets.sample.data_path()
             raw_path = os.path.join(sample_data_folder, 'MEG', 'sample',
                                     'sample_audvis_raw.fif')
         self.raw = mne.io.read_raw(raw_path)
+        print(f'Sampling-Frequency: {self.raw.info["sfreq"]}')
 
         set_browser_backend(self.backend_name)
         pre_time = time()
         self.backend = self.raw.plot(block=False, time_format='float',
-                                     duration=20, **self.backend_kwargs)
+                                     **self.backend_kwargs)
         self.backend_startup_time = time() - pre_time
         # Get backend parameters (all parameters with default-value)
         if hasattr(self.backend, 'pg_kwarg_defaults'):
@@ -340,21 +353,29 @@ class BenchmarkWindow(QMainWindow):
     def init_toolbar(self):
         self.toolbar = self.addToolBar('Tools')
 
+        aopen_file = QAction('Open File', parent=self)
+        aopen_file.triggered.connect(self.open_file)
+        self.toolbar.addAction(aopen_file)
+
+        ause_sample = QAction('Use Sample-Dataset', parent=self)
+        ause_sample.triggered.connect(self.use_sample_dataset)
+        self.toolbar.addAction(ause_sample)
+
         # backend_cmbx = QComboBox()
         # backend_cmbx.addItems(self.available_backends.keys())
         # backend_cmbx.setCurrentText(self.backend_name)
         # backend_cmbx.currentTextChanged.connect(self.backend_changed)
         # self.toolbar.addWidget(backend_cmbx)
 
-        aedit_kwargs = QAction('Edit Parameters', parent=self)
-        aedit_kwargs.triggered.connect(partial(KwargDialog, self))
-        self.toolbar.addAction(aedit_kwargs)
-
-        # self.toolbar.addSeparator()
+        self.toolbar.addSeparator()
 
         self.toolbar.addWidget(QLabel('<b>Benchmarks: </b>'))
         self.benchmark_cmbx = self.get_bm_cmbx()
         self.toolbar.addWidget(self.benchmark_cmbx)
+
+        aedit_kwargs = QAction('Edit Parameters', parent=self)
+        aedit_kwargs.triggered.connect(partial(KwargDialog, self))
+        self.toolbar.addAction(aedit_kwargs)
 
         astart_bm = QAction('Start', parent=self)
         astart_bm.triggered.connect(self.start_single_benchmark)
@@ -375,13 +396,22 @@ class BenchmarkWindow(QMainWindow):
         aedit_bm.triggered.connect(partial(BenchmarkEditor, self))
         self.toolbar.addAction(aedit_bm)
 
-        ads_test = QAction('Downsampling-Test', parent=self)
-        ads_test.triggered.connect(self.toggle_ds_test)
-        self.toolbar.addAction(ads_test)
-
         ampl_plot = QAction('MPL-Plot', parent=self)
         ampl_plot.triggered.connect(self.mpl_plot)
         self.toolbar.addAction(ampl_plot)
+
+    def open_file(self):
+        file_path = QFileDialog.getOpenFileName(self,
+                                                'Open a file which is '
+                                                'readable by MNE-Python.')[0]
+        if file_path:
+            self.raw_path = file_path
+            self.load_backend()
+
+    def use_sample_dataset(self):
+        self.raw_path = ''
+        os.remove(self.raw_test_path)
+        self.load_backend()
 
     def backend_changed(self, backend):
         self.backend_name = backend
@@ -527,10 +557,6 @@ class BenchmarkWindow(QMainWindow):
         if not self.raw.preload:
             self.raw.load_data()
         self.raw.save(self.raw_test_path, overwrite=True)
-
-    def toggle_ds_test(self):
-        self.ds_test = not self.ds_test
-        self.load_backend()
 
     def mpl_plot(self):
         fig = self.raw.plot(duration=self.backend_kwargs['duration'],
