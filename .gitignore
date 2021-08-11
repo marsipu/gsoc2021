@@ -134,4 +134,4 @@ dmypy.json
 # VSCode-Files
 .vscode/
 
-filtered_raw.fif
+test_raw.fif
