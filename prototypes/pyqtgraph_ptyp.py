@@ -128,7 +128,8 @@ class ChannelAxis(AxisItem):
 
     def tickStrings(self, values, scale, spacing):
         # Get channel-names
-        tick_strings = self.mne.ch_names[self.mne.picks]
+        ch_idxs = [v - 1 for v in values]
+        tick_strings = self.mne.ch_names[self.mne.ch_order[ch_idxs]]
 
         return tick_strings
 
@@ -1065,7 +1066,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
     def yrange_changed(self, _, yrange):
         # Update picks
-        self.mne.ch_start = int(yrange[0])
+        self.mne.ch_start = round(yrange[0])
         self._update_picks()
         self._update_data()
 
