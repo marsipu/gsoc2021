@@ -713,7 +713,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             and are repeated only if necessary. If False (default),
             preprocessing is applied only on the visible data.
         """
-        self.pg_kwarg_defaults = dict(ds='auto',
+        self.pg_kwarg_defaults = dict(duration=20,
+                                      n_channels=30,
+                                      highpass=None,
+                                      lowpass=None,
+                                      ds='auto',
                                       ds_method='peak',
                                       ds_chunk_size=None,
                                       antialiasing=False,
