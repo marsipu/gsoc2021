@@ -31,6 +31,7 @@
 - [ ] Channel-Clipping
 - [ ] Applying projections
 - [ ] Group channels (group_by-parameter)
+- [ ] Selection-Figure
 - [ ] Butterfly-Mode
 
 ## Application Configuration
