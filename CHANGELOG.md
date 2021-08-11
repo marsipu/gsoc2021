@@ -1,4 +1,10 @@
 # Week 10
+## Wednesday, 2021-08-11
+- fixed more bugs in pyqtgraph-prototyp and preloading-behaviour
+- adapted benchmark to integrated pyqtgraph-prototype
+- added startup-time to benchmark
+- examined effect of preload on performance
+
 ## Tuesday, 2021-08-10
 - fixed bugs from adaption of pyqtgraph-prototyp
 - improved performance in vertical scrolling by reusing existing 
