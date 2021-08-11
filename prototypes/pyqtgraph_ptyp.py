@@ -1020,7 +1020,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         if ymax - ymin <= 2:
             ymax = ymin + 2
 
-        self.mne.n_channels = ymax - ymin - 1
+        self.mne.n_channels = round(ymax - ymin - 1)
         self._update_picks()
         self._update_data()
         self.mne.plt.setYRange(ymin, ymax, padding=0)
@@ -1075,7 +1075,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         add_idxs = [p for p in self.mne.picks
                     if p not in [tr.ch_idx for tr in self.mne.traces]]
         # Update number of traces.
-        trace_diff = len(self.mne.traces) - len(self.mne.picks)
+        trace_diff = len(self.mne.picks) - len(self.mne.traces)
         # Remove unnecessary traces.
         if trace_diff < 0:
             # Only remove from traces not in picks.
