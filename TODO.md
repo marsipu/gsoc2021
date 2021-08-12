@@ -17,22 +17,24 @@
 - [X] changing scaling
 - [X] channel-type colors
 - [X] Annotation-Management
-- [ ] adaption to Epochs
+- [ ] Adapt Tests
+- [ ] Preload in Thread (with max. RAM-Space Parameter in config)
 - [ ] Overview-Bar
-- [ ] Scale-Bars/Legends
 - [ ] Event Lines
-- [ ] Per-channel-annotation
+- [ ] Scale-Bars/Legends
+- [ ] Channel-Clipping
 - [X] Zoom Duration/N-Channels
 - [X] Vertical Line
 - [X] Mark Channels (including channel-label)
 - [X] Area Selection
 
-## Features from MPL-Backend
-- [ ] Channel-Clipping
+## Additional (after GSoC)
 - [ ] Applying projections
+- [ ] Butterfly-Mode
+- [ ] adaption to Epochs
+- [ ] Per-channel-annotation
 - [ ] Group channels (group_by-parameter)
 - [ ] Selection-Figure
-- [ ] Butterfly-Mode
 
 ## Application Configuration
 - [X] Entry point for application (solved with python -m [...])
