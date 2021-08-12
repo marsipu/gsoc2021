@@ -1529,7 +1529,18 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
 
 qt_key_mapping = {
-    'escape': Qt.Key_Escape
+    'escape': Qt.Key_Escape,
+    'down': Qt.Key_Down,
+    'up': Qt.Key_Up,
+    'left': Qt.Key_Left,
+    'right': Qt.Key_Right,
+    '-': Qt.Key_Minus,
+    '+': Qt.Key_Plus,
+    'pageup': Qt.Key_PageUp,
+    'pagedown': Qt.Key_PageDown,
+    'home': Qt.Key_Home,
+    'end': Qt.Key_End,
+    '?': Qt.Key_Question
 }
 for char in 'abcdefghijklmnopyqrstuvwxyz0123456789':
     qt_key_mapping[char] = getattr(Qt, f'Key_{char.upper() or char}')
