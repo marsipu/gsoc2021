@@ -87,9 +87,22 @@ class TimeAxis(AxisItem):
         self.mne = mne
         super().__init__(orientation='bottom')
 
-    def tickStrings(self, values, scale, spacing):
+    def tickValues(self, minVal, maxVal, size):
+        if self.mne.is_epochs:
+            values = self.mne.midpoints[np.argwhere(
+                minVal <= self.mne.midpoints <= maxVal)]
+            tick_values = [(len(self.mne.inst.times), values)]
+            return tick_values
+        else:
+            return super().tickValues(minVal, maxVal, size)
 
-        if self.mne.time_format == 'clock':
+    def tickStrings(self, values, scale, spacing):
+        if self.mne.is_epochs:
+            epoch_nums = self.mne.inst.selection
+            ts = epoch_nums[np.in1d(self.mne.midpoints, values).nonzero()[0]]
+            tick_strings = [str(v) for v in ts]
+
+        elif self.mne.time_format == 'clock':
             meas_date = self.mne.inst.info['meas_date']
             first_time = datetime.timedelta(seconds=self.mne.inst.first_time)
             digits = np.ceil(-np.log10(spacing) + 1).astype(int)
@@ -734,7 +747,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         BrowserBase.__init__(self, **kwargs)
         QMainWindow.__init__(self)
 
-        # Initialize Attributes and add them to MNEBrowseParams
+        # Initialize attributes and add them to MNEBrowseParams
         self.mne.ds_cache = dict()
         self.mne.global_changed = True
         self.mne.traces = list()
@@ -742,11 +755,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.time_decimals = int(np.ceil(
             np.log10(self.mne.inst.info['sfreq'])))
 
-        # Pointers for continous scrolling
-        self.mne.hscroll_dir = 1
-        self.mne.vscroll_dir = 1
-
-        # Initialize Annotations (ToDo: Adjust to MPL)
+        # Initialize annotations (ToDo: Adjust to MPL)
         self.mne.annotation_mode = False
         self.mne.annotations = self.mne.inst.annotations
         self.mne.descriptions = list(set(
@@ -1006,6 +1015,16 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         if xmin < 0:
             xmin = 0
 
+        if self.mne.is_epochs:
+            # use the length of one epoch as duration change
+            min_dur = len(self.mne.inst.times) / self.mne.info['sfreq']
+        else:
+            # never show fewer than 3 samples
+            min_dur = 3 * np.diff(self.mne.inst.times[:2])[0]
+
+        if xmax - xmin < min_dur:
+            xmax = xmin + min_dur
+
         self.mne.plt.setXRange(xmin, xmax, padding=0)
 
     def change_nchan(self, step):
@@ -1025,7 +1044,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
     def remove_vline(self):
         if self.mne.vline:
-            self.mne.plt.removeItem(self.mne.vline)
+            if self.mne.is_epochs:
+                for vline in self.mne.vline:
+                    self.mne.plt.removeItem(vline)
+            else:
+                self.mne.plt.removeItem(self.mne.vline)
 
     def add_vline(self, pos):
         # Remove vline if already shown
