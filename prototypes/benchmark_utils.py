@@ -9,20 +9,19 @@ from os.path import isfile, join
 
 import mne
 import numpy as np
-from PyQt5.QtCore import QTimer, pyqtSignal
+from PyQt5.QtCore import QTimer, pyqtSignal, Qt
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
                              QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                              QListWidget, QMainWindow,
                              QMessageBox, QPushButton, QScrollArea,
                              QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
                              QTabWidget, QFileDialog)
+from mne.preprocessing import ICA
 from mne.viz._figure import set_browser_backend
 from mne.viz.utils import _get_color_list
 from pyqtgraph import PlotDataItem, PlotWidget, mkPen, time, BarGraphItem, \
     mkBrush
-
-from .pyqtgraph_ptyp import PyQtGraphPtyp
-from .qt_ptyp import PyQtPtyp
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
 
 class EvalParam(QLineEdit):
@@ -258,21 +257,40 @@ class BenchmarkWindow(QMainWindow):
         super().__init__()
 
         self.available_backends = ['pyqtgraph', 'matplotlib']
-        self.backend_name = 'pyqtgraph'
+        self.current_backend = 'pyqtgraph'
+        self.backend = None
         self.backend_kwargs = dict()
 
-        self.raw_path = ''
-        self.raw_test_path = join(os.getcwd(), 'test_raw.fif')
+        self.available_modes = ['Raw', 'Epochs', 'ICA']
+        self.current_mode = 'Raw'
+
+        self.inst = None
+        self.file_path = ''
+        self.raw_saved_path = join(os.getcwd(), 'test_raw.fif')
+        self.epo_saved_path = join(os.getcwd(), 'test_epo.fif')
+        self.ica_saved_path = join(os.getcwd(), 'test_ica.fif')
+
+        # Initialize Status-Bar Widgets
+        self.startup_status = QLabel()
+        self.statusBar().addPermanentWidget(self.startup_status)
+        self.fps_status = QLabel()
+        self.statusBar().addPermanentWidget(self.fps_status)
 
         self.load_backend()
 
+        self.backend_startup_time = None
         self.last_time = None
         self.fps = None
         self.n_bm = None
         self.n_limit = 50
 
-        # limit for change duration/n-channel benchmarks (stays inside this range)
-        self.change_limit = 50
+        # limit for change duration/n-channel benchmarks
+        # (stays inside this range)
+        self.change_limit = 20
+        self.hscroll_dir = True
+        self.vscroll_dir = True
+        self.duration_change = True
+        self.channel_change = True
 
         self.bm_run = None
         self.stop_multi_run = False
@@ -290,39 +308,122 @@ class BenchmarkWindow(QMainWindow):
         self.finishedRun.connect(self.run_finished)
         self.finishedBm.connect(self.bm_finished)
 
-    def load_backend(self):
-        # Remove existing backend
-        if self.centralWidget() is not None:
-            self.takeCentralWidget()
-            self.backend.deleteLater()
-            del self.backend
-
+    def _load_raw(self):
         # Load Raw
-        if isfile(self.raw_test_path) and isfile(self.raw_path):
+        if isfile(self.raw_saved_path) and isfile(self.file_path):
             # Compare
-            raw_test_info = mne.io.read_info(self.raw_test_path)
-            raw_info = mne.io.read_info(self.raw_path)
+            raw_saved_info = mne.io.read_info(self.raw_saved_path)
+            raw_info = mne.io.read_info(self.file_path)
 
-            if raw_info['meas_date'] == raw_test_info['meas_date']:
-                raw_path = self.raw_test_path
+            if raw_info['meas_date'] == raw_saved_info['meas_date']:
+                raw_path = self.raw_saved_path
             else:
-                raw_path = self.raw_path
-        elif isfile(self.raw_test_path):
-            raw_path = self.raw_test_path
-        elif isfile(self.raw_path):
-            raw_path = self.raw_path
+                raw_path = self.file_path
+        elif isfile(self.raw_saved_path):
+            raw_path = self.raw_saved_path
+        elif isfile(self.file_path):
+            raw_path = self.file_path
         else:
             sample_data_folder = mne.datasets.sample.data_path()
             raw_path = os.path.join(sample_data_folder, 'MEG', 'sample',
                                     'sample_audvis_raw.fif')
-        self.raw = mne.io.read_raw(raw_path)
-        print(f'Sampling-Frequency: {self.raw.info["sfreq"]}')
+        raw = mne.io.read_raw(raw_path)
+        print(f'Sampling-Frequency: {raw.info["sfreq"]}')
 
-        set_browser_backend(self.backend_name)
+        return raw
+
+    def _load_epochs(self):
+        # Load Epochs
+        if isfile(self.epo_saved_path) and isfile(self.file_path):
+            # Compare
+            epo_saved_info = mne.io.read_info(self.epo_saved_path)
+            epo_info = mne.io.read_info(self.file_path)
+
+            if epo_info['meas_date'] == epo_saved_info['meas_date']:
+                epo_path = self.epo_saved_path
+            else:
+                epo_path = self.file_path
+        elif isfile(self.epo_saved_path):
+            epo_path = self.epo_saved_path
+        elif isfile(self.file_path):
+            epo_path = self.file_path
+        else:
+            sample_data_folder = mne.datasets.sample.data_path()
+            raw = self._load_raw()
+            events_path = os.path.join(sample_data_folder, 'MEG', 'sample',
+                                       'sample_audvis_raw-eve.fif')
+            events = mne.read_events(events_path)
+            epochs = mne.Epochs(raw, events)
+            return epochs
+
+        epochs = mne.read_epochs(epo_path)
+        print(f'Sampling-Frequency: {epochs.info["sfreq"]}')
+
+        return epochs
+
+    def _load_ica(self):
+        # Load Epochs
+        if isfile(self.ica_saved_path) and isfile(self.file_path):
+            # Compare
+            ica_saved_info = mne.io.read_info(self.ica_saved_path)
+            ica_info = mne.io.read_info(self.file_path)
+
+            if ica_info['meas_date'] == ica_saved_info['meas_date']:
+                ica_path = self.ica_saved_path
+            else:
+                ica_path = self.file_path
+        elif isfile(self.ica_saved_path):
+            ica_path = self.ica_saved_path
+        elif isfile(self.file_path):
+            ica_path = self.file_path
+        else:
+            raw = self._load_raw()
+            filt_raw = raw.filter(1, None, n_jobs=-1)
+            ica = ICA(n_components=10)
+            ica.fit(filt_raw)
+            return ica
+
+        ica = mne.preprocessing.read_ica(ica_path)
+        print(f'Sampling-Frequency: {ica.info["sfreq"]}')
+
+        return ica
+
+    def load_backend(self):
+        # Remove existing backend
+        if self.centralWidget() is not None:
+            widget = self.takeCentralWidget()
+            widget.deleteLater()
+            del self.backend
+
+        # Reset Benchmark-Attributes
+        self.hscroll_dir = True
+        self.vscroll_dir = True
+        self.duration_change = True
+        self.channel_change = True
+
+        # Load data depending on mode
+        if self.current_mode == 'Raw':
+            self.inst = self._load_raw()
+        elif self.current_mode == 'Epochs':
+            self.inst = self._load_epochs()
+        else:
+            self.inst = self._load_ica()
+        
+        set_browser_backend(self.current_backend)
         pre_time = time()
-        self.backend = self.raw.plot(block=False, time_format='float',
-                                     **self.backend_kwargs)
+
+        if self.current_mode == 'ICA':
+            raw = self._load_raw()
+            self.backend = self.inst.plot_sources(raw, block=False,
+                                                  **self.backend_kwargs)
+        else:
+            self.backend = self.inst.plot(block=False, show=False,
+                                          **self.backend_kwargs)
+
         self.backend_startup_time = time() - pre_time
+        self.startup_status.setText(f'Startup: '
+                                    f'{self.backend_startup_time:.3f} s')
+        self.fps_status.setText('')
         # Get backend parameters (all parameters with default-value)
         if hasattr(self.backend, 'pg_kwarg_defaults'):
             backend_defaults = self.backend.pg_kwarg_defaults
@@ -335,7 +436,14 @@ class BenchmarkWindow(QMainWindow):
                 else backend_defaults[k] for k in backend_defaults}
         self.backend_kwargs = backend_defaults
 
-        self.setCentralWidget(self.backend)
+        if self.current_backend == 'matplotlib':
+            canvas = FigureCanvasQTAgg(self.backend)
+            # canvas.draw()
+            canvas.setFocusPolicy(Qt.StrongFocus | Qt.WheelFocus)
+            canvas.setFocus()
+            self.setCentralWidget(canvas)
+        else:
+            self.setCentralWidget(self.backend)
 
     def get_bm_cmbx(self):
         bm_cmbx = QComboBox()
@@ -361,11 +469,19 @@ class BenchmarkWindow(QMainWindow):
         ause_sample.triggered.connect(self.use_sample_dataset)
         self.toolbar.addAction(ause_sample)
 
-        # backend_cmbx = QComboBox()
-        # backend_cmbx.addItems(self.available_backends.keys())
-        # backend_cmbx.setCurrentText(self.backend_name)
-        # backend_cmbx.currentTextChanged.connect(self.backend_changed)
-        # self.toolbar.addWidget(backend_cmbx)
+        self.toolbar.addSeparator()
+
+        backend_cmbx = QComboBox()
+        backend_cmbx.addItems(self.available_backends)
+        backend_cmbx.setCurrentText(self.current_backend)
+        backend_cmbx.currentTextChanged.connect(self.backend_changed)
+        self.toolbar.addWidget(backend_cmbx)
+
+        mode_cmbx = QComboBox()
+        mode_cmbx.addItems(self.available_modes)
+        mode_cmbx.setCurrentText(self.current_mode)
+        mode_cmbx.currentTextChanged.connect(self.mode_changed)
+        self.toolbar.addWidget(mode_cmbx)
 
         self.toolbar.addSeparator()
 
@@ -396,25 +512,25 @@ class BenchmarkWindow(QMainWindow):
         aedit_bm.triggered.connect(partial(BenchmarkEditor, self))
         self.toolbar.addAction(aedit_bm)
 
-        ampl_plot = QAction('MPL-Plot', parent=self)
-        ampl_plot.triggered.connect(self.mpl_plot)
-        self.toolbar.addAction(ampl_plot)
-
     def open_file(self):
         file_path = QFileDialog.getOpenFileName(self,
                                                 'Open a file which is '
                                                 'readable by MNE-Python.')[0]
         if file_path:
-            self.raw_path = file_path
+            self.file_path = file_path
             self.load_backend()
 
     def use_sample_dataset(self):
-        self.raw_path = ''
-        os.remove(self.raw_test_path)
+        self.file_path = ''
+        os.remove(self.raw_saved_path)
         self.load_backend()
 
     def backend_changed(self, backend):
-        self.backend_name = backend
+        self.current_backend = backend
+        self.load_backend()
+
+    def mode_changed(self, mode):
+        self.current_mode = mode
         self.load_backend()
 
     def change_duration(self, step):
@@ -436,7 +552,7 @@ class BenchmarkWindow(QMainWindow):
             else:
                 s = np.clip(dt * 3., 0, 1)
                 self.fps = self.fps * (1 - s) + (1.0 / dt) * s
-            self.backend.mne.plt.setTitle(f'{self.fps:.2f} fps')
+            self.fps_status.setText(f'FPS: {self.fps:.3f}')
             if self.bm_run:
                 self.benchmark_results[self.bm_run]['fps'].append(self.fps)
 
@@ -467,23 +583,37 @@ class BenchmarkWindow(QMainWindow):
 
     @benchmark
     def benchmark_hscroll(self):
-        self.backend.infini_hscroll(10)
+        if self.backend.mne.t_start + self.backend.mne.duration \
+                >= self.backend.mne.inst.times[-1]:
+            self.hscroll_dir = False
+        elif self.backend.mne.t_start <= 0:
+            self.hscroll_dir = True
+        key = 'right' if self.hscroll_dir else 'left'
+        self.backend._fake_keypress(key)
 
     @benchmark
     def benchmark_vscroll(self):
-        self.backend.infini_vscroll(1)
+        if self.backend.mne.ch_start + self.backend.mne.n_channels \
+                >= len(self.backend.mne.inst.ch_names):
+            self.vscroll_dir = False
+        elif self.backend.mne.ch_start <= 0:
+            self.vscroll_dir = True
+        key = 'down' if self.vscroll_dir else 'up'
+        self.backend._fake_keypress(key)
 
     @benchmark
     def benchmark_duration_change(self):
         if self.n_bm % self.change_limit == 0:
-            self.duration_bm *= -1
-        self.backend.change_duration(self.duration_bm)
+            self.duration_change = not self.duration_change
+        key = 'end' if self.duration_change else 'home'
+        self.backend._fake_keypress(key)
 
     @benchmark
     def benchmark_nchan_change(self):
-        if self.n_bm % self.change_limit == 0 and self.n_bm != 0:
-            self.nchan_bm *= -1
-        self.backend.change_nchan(self.nchan_bm)
+        if self.n_bm % self.change_limit == 0:
+            self.channel_change = not self.channel_change
+        key = 'pageup' if self.channel_change else 'pagedown'
+        self.backend._fake_keypress(key)
 
     @benchmark
     def benchmark_toggle_proj(self):
@@ -495,8 +625,6 @@ class BenchmarkWindow(QMainWindow):
 
     def start_single_benchmark(self):
         self.n_bm = 1
-        self.duration_bm = 2
-        self.nchan_bm = 1
         self.bm_run = None
         selected_bm = self.benchmark_cmbx.currentText()
         self.last_time = None
@@ -514,8 +642,6 @@ class BenchmarkWindow(QMainWindow):
         if not self.stop_multi_run:
             self.last_time = None
             self.n_bm = 1
-            self.duration_bm = 2
-            self.nchan_bm = 2
             # Very cluttered way to get and pop first benchmark-run from nested dictionary.
             while len(self.cp_bm_runs) > 0 and len(
                     self.cp_bm_runs[list(self.cp_bm_runs.keys())[0]]) == 0:
@@ -553,16 +679,17 @@ class BenchmarkWindow(QMainWindow):
         self.load_backend()
         ResultDialog(self)
 
-    def save_raw(self, _):
-        if not self.raw.preload:
-            self.raw.load_data()
-        self.raw.save(self.raw_test_path, overwrite=True)
-
-    def mpl_plot(self):
-        fig = self.raw.plot(duration=self.backend_kwargs['duration'],
-                            n_channels=self.backend_kwargs['n_channels'])
-        fig.canvas.mpl_connect('close_event', self.save_raw)
+    def save_inst(self, _):
+        if hasattr(self.inst, 'preload') and not self.inst.preload:
+            self.inst.load_data()
+        if self.current_mode == 'Raw':
+            save_path = self.raw_saved_path
+        elif self.current_mode == 'Epochs':
+            save_path = self.epo_saved_path
+        else:
+            save_path = self.ica_saved_path
+        self.inst.save(save_path, overwrite=True)
 
     def closeEvent(self, event):
         event.accept()
-        self.save_raw(None)
+        self.save_inst(None)
