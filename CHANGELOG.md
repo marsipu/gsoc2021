@@ -1,4 +1,9 @@
 # Week 10
+## Thursday, 2021-08-12
+- added matplotlib to benchmark-utility
+- added Epochs and ICA to benchmark-utility
+- WIP adaption of pyqtgraph-backend to epochs
+
 ## Wednesday, 2021-08-11
 - fixed more bugs in pyqtgraph-prototyp and preloading-behaviour
 - adapted benchmark to integrated pyqtgraph-prototype
