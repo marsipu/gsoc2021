@@ -1,4 +1,8 @@
 # Week 10
+## Friday, 2021-08-13
+- worked on fake-clicks in pyqtgraph-backend
+- WIP test_plot_raw_traces
+
 ## Thursday, 2021-08-12
 - added matplotlib to benchmark-utility
 - added Epochs and ICA to benchmark-utility
