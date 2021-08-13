@@ -4,14 +4,15 @@ from functools import partial
 from itertools import cycle
 
 import numpy as np
-from PyQt5.QtCore import QEvent
+from PyQt5.QtCore import QEvent, QPoint
 from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap, QTransform
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
                              QDockWidget, QDoubleSpinBox, QFormLayout,
                              QGridLayout, QHBoxLayout, QInputDialog, QLabel,
                              QMainWindow, QMessageBox, QPushButton, QScrollBar,
-                             QSizePolicy, QWidget)
+                             QSizePolicy, QWidget, QStyleOptionSlider, QStyle,
+                             QApplication)
 from mne.utils import logger
 from mne.viz._figure import BrowserBase
 from mne.viz.utils import _get_color_list
@@ -20,6 +21,8 @@ from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
                        mkBrush, mkPen, setConfigOption, mkQApp)
 from pyqtgraph.Qt.QtCore import Qt, Signal
+
+name = 'pyqtgraph'
 
 
 class RawTraceItem(PlotCurveItem):
@@ -78,7 +81,15 @@ class RawTraceItem(PlotCurveItem):
             self.isbad = not self.isbad
             self.update_bad_color()
             self.sigClicked.emit(self, ev)
-
+    
+    def get_xdata(self):
+        """Get data for testing."""
+        return self.xData
+    
+    def get_ydata(self):
+        """Get data for testing."""
+        return self.yData
+    
 
 class TimeAxis(AxisItem):
     """The X-Axis displaying the time."""
@@ -124,6 +135,13 @@ class TimeAxis(AxisItem):
         self.picture = None
         self.update()
 
+    def get_labels(self):
+        """Get labels for testing."""
+        values = self.tickValues(*self.mne.viewbox.viewRange()[0], None)
+        labels = self.tickStrings(values, None, None)
+
+        return labels
+
 
 class ChannelAxis(AxisItem):
     """The Y-Axis displaying the channel-names."""
@@ -164,7 +182,7 @@ class ChannelAxis(AxisItem):
     def mouseClickEvent(self, event):
         # Clean up channel-texts
         self.ch_texts = {k: v for k, v in self.ch_texts.items()
-                         if k in [li.ch_name for li in self.mne.traces]}
+                         if k in [tr.ch_name for tr in self.mne.traces]}
         # Get channel-name from position of channel-description
         ypos = event.scenePos().y()
         ch_name = [chn for chn in self.ch_texts
@@ -177,8 +195,63 @@ class ChannelAxis(AxisItem):
             self.main.toggle_bad_channel(line)
         # return super().mouseClickEvent(event)
 
+    def get_labels(self):
+        """Get labels for testing."""
+        values = self.tickValues(*self.mne.viewbox.viewRange()[1], None)
+        labels = self.tickStrings(values[0][1], None, None)
 
-class TimeScrollBar(QScrollBar):
+        return labels
+
+
+class BaseScrollBar(QScrollBar):
+    """This ScrollBar implements scrolling directly to the clicked position.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def mousePressEvent(self, event):
+        """Taken from: https://stackoverflow.com/questions/29710327/
+        how-to-override-qscrollbar-onclick-default-behaviour"""
+        if event.button() == Qt.LeftButton:
+            opt = QStyleOptionSlider()
+            self.initStyleOption(opt)
+            control = self.style().hitTestComplexControl(
+                QStyle.CC_ScrollBar, opt,
+                event.pos(), self)
+            if (control == QStyle.SC_ScrollBarAddPage or
+                    control == QStyle.SC_ScrollBarSubPage):
+                # scroll here
+                gr = self.style().subControlRect(QStyle.CC_ScrollBar,
+                                                 opt,
+                                                 QStyle.SC_ScrollBarGroove,
+                                                 self)
+                sr = self.style().subControlRect(QStyle.CC_ScrollBar,
+                                                 opt,
+                                                 QStyle.SC_ScrollBarSlider,
+                                                 self)
+                if self.orientation() == Qt.Horizontal:
+                    pos = event.pos().x()
+                    sliderLength = sr.width()
+                    sliderMin = gr.x()
+                    sliderMax = gr.right() - sliderLength + 1
+                    if (self.layoutDirection() == Qt.RightToLeft):
+                        opt.upsideDown = not opt.upsideDown
+                else:
+                    pos = event.pos().y()
+                    sliderLength = sr.height()
+                    sliderMin = gr.y()
+                    sliderMax = gr.bottom() - sliderLength + 1
+                self.setValue(QStyle.sliderValueFromPosition(
+                    self.minimum(), self.maximum(), pos - sliderMin,
+                                                    sliderMax - sliderMin,
+                    opt.upsideDown))
+                return
+
+        return super().mousePressEvent(event)
+
+
+class TimeScrollBar(BaseScrollBar):
     """Scrolls through time."""
 
     def __init__(self, mne):
@@ -226,7 +299,7 @@ class TimeScrollBar(QScrollBar):
         event.ignore()
 
 
-class ChannelScrollBar(QScrollBar):
+class ChannelScrollBar(BaseScrollBar):
     """Scrolls through channels."""
 
     def __init__(self, mne):
@@ -802,18 +875,18 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         layout = QGridLayout()
 
         # Initialize Axis-Items
-        time_ax = TimeAxis(self.mne)
-        time_ax.setLabel(text='Time', units='s')
-        ch_ax = ChannelAxis(self)
+        ax_hscroll = TimeAxis(self.mne)
+        ax_hscroll.setLabel(text='Time', units='s')
+        ax_vscroll = ChannelAxis(self)
         viewbox = RawViewBox(self)
-        vars(self.mne).update(time_ax=time_ax, ch_ax=ch_ax, viewbox=viewbox)
+        vars(self.mne).update(ax_hscroll=ax_hscroll, ax_vscroll=ax_vscroll, viewbox=viewbox)
 
         # Initialize data
         self._update_data()
 
         # Initialize Trace-Plot
         plt = PlotItem(viewBox=viewbox,
-                       axisItems={'bottom': time_ax, 'left': ch_ax})
+                       axisItems={'bottom': ax_hscroll, 'left': ax_vscroll})
         # Hide AutoRange-Button
         plt.hideButtons()
         # Configure XY-Range
@@ -878,6 +951,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Initialize VLine
         self.mne.vline = None
+        self.mne.vline_visible = False
 
         # Initialize Toolbar
         toolbar = self.addToolBar('Tools')
@@ -934,7 +1008,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         line.update_bad_color()
 
         # Update Channel-Axis
-        self.mne.ch_ax.redraw()
+        self.mne.ax_vscroll.redraw()
 
     def add_trace(self, ch_idx):
         trace = RawTraceItem(self.mne, ch_idx)
@@ -1009,12 +1083,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         xmax += rel_step
         xmin -= rel_step
 
-        if xmax > self.mne.xmax:
-            xmax = self.mne.xmax
-
-        if xmin < 0:
-            xmin = 0
-
         if self.mne.is_epochs:
             # use the length of one epoch as duration change
             min_dur = len(self.mne.inst.times) / self.mne.info['sfreq']
@@ -1024,6 +1092,12 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         if xmax - xmin < min_dur:
             xmax = xmin + min_dur
+
+        if xmax > self.mne.xmax:
+            xmax = self.mne.xmax
+
+        if xmin < 0:
+            xmin = 0
 
         self.mne.plt.setXRange(xmin, xmax, padding=0)
 
@@ -1050,12 +1124,16 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             else:
                 self.mne.plt.removeItem(self.mne.vline)
 
+        self.mne.vline = None
+        self.mne.vline_visible = False
+
     def add_vline(self, pos):
         # Remove vline if already shown
         self.remove_vline()
 
         self.mne.vline = VLine(pos, bounds=(0, self.mne.xmax))
         self.mne.plt.addItem(self.mne.vline)
+        self.mne.vline_visible = True
 
     def toggle_annot_hint(self, annotation_mode):
         if annotation_mode:
@@ -1419,11 +1497,17 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def _toggle_time_format(self):
         if self.mne.time_format == 'float':
             self.mne.time_format = 'clock'
-            self.mne.time_ax.setLabel(text='Time')
+            self.mne.ax_hscroll.setLabel(text='Time')
         else:
             self.mne.time_format = 'float'
-            self.mne.time_ax.setLabel(text='Time', units='s')
-        self.mne.time_ax.refresh()
+            self.mne.ax_hscroll.setLabel(text='Time', units='s')
+        self.mne.ax_hscroll.refresh()
+
+    def _toggle_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
 
     def _update_trace_offsets(self):
         pass
@@ -1509,6 +1593,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                 self._toggle_proj_fig()
         elif event.key() == Qt.Key_D:
             self._toggle_dc()
+        elif event.key() == Qt.Key_F11:
+            self._toggle_fullscreen()
 
     def _redraw(self, update_data=True):
         if update_data:
@@ -1534,16 +1620,65 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
     def _fake_click(self, point, fig=None, ax=None,
                     xform='ax', button=1, kind='press'):
-        pass
+
+        # Qt: right-button=2, matplotlib: right-button=3
+        button = 2 if button == 3 else button
+
+        # For Qt, fig or ax both would be the widget to test interaction on.
+        fig = ax or fig or self.mne.view
+
+        if xform == 'ax':
+            # For Qt, the equivalent of matplotlibs transAxes
+            # would be a transformation to View Coordinates.
+            # But for the View top-left is (0, 0) and bottom-right is
+            # (view-width, view-height).
+
+            view_width = fig.width()
+            view_height = fig.height()
+
+            x = view_width * point[0]
+            y = view_height * (1 - point[1])
+
+            point = QPoint(x, y)
+
+        elif xform == 'data':
+            # For Qt, the equivalent of matplotlibs transData
+            # would be a transformation to Scene Coordinates.
+            # This only works with the QGraphicsView (self.mne.view)
+            fig = self.mne.view
+            point = fig.mapFromScene(*point)
+        else:
+            point = QPoint(point)
+
+        if kind == 'press':
+            QTest.mousePress(fig, button, pos=point)
+        elif kind == 'release':
+            QTest.mouseRelease(fig, button, pos=point)
+        elif kind == 'motion':
+            QTest.mouseMove(fig, point)
 
     def _fake_scroll(self, x, y, step, fig=None):
         pass
 
     def _click_ch_name(self, ch_index, button):
-        pass
+        yrange = self.mne.ax_vscroll.ch_texts[ch_index]
+        y = np.mean(yrange)
+        x = self.mne.ax_vscroll.scene().width() / 2
+        point = self.mne.ax_vscroll.mapFromScene(x, y)
+        pos = point.x(), point.y()
+
+        self._fake_click(pos, fig=self.mne.ax_vscroll, button=button)
 
     def _resize_by_factor(self, factor):
         pass
+
+    def _get_ticklabels(self, orientation):
+        if orientation == 'x':
+            ax = self.mne.ax_hscroll
+        else:
+            ax = self.mne.ax_vscroll
+
+        return ax.get_labels()
 
     def closeEvent(self, event):
         event.accept()
@@ -1559,14 +1694,20 @@ qt_key_mapping = {
     'right': Qt.Key_Right,
     '-': Qt.Key_Minus,
     '+': Qt.Key_Plus,
+    '=': Qt.Key_Equal,
     'pageup': Qt.Key_PageUp,
     'pagedown': Qt.Key_PageDown,
     'home': Qt.Key_Home,
     'end': Qt.Key_End,
-    '?': Qt.Key_Question
+    '?': Qt.Key_Question,
+    'f11': Qt.Key_F11
 }
 for char in 'abcdefghijklmnopyqrstuvwxyz0123456789':
     qt_key_mapping[char] = getattr(Qt, f'Key_{char.upper() or char}')
+
+
+def _get_n_figs():
+    return len(QApplication.topLevelWidgets())
 
 
 def _init_browser(inst, figsize, **kwargs):
