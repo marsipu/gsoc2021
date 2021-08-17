@@ -1151,31 +1151,32 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         if self.mne.crosshair_enabled:
             if self.mne.plt.sceneBoundingRect().contains(pos):
                 mousePoint = self.mne.viewbox.mapSceneToView(pos)
+                x, y = mousePoint.x(), mousePoint.y()
+                if (0 <= x <= self.mne.xmax and
+                        0 <= y <= self.mne.ymax):
+                    if not self.mne.crosshair_v:
+                        self.mne.crosshair_v = InfiniteLine(angle=90,
+                                                            movable=False)
+                        self.mne.plt.addItem(self.mne.crosshair_v,
+                                             ignoreBounds=True)
+                    if not self.mne.crosshair_h:
+                        self.mne.crosshair_h = InfiniteLine(angle=0,
+                                                            movable=False)
+                        self.mne.plt.addItem(self.mne.crosshair_h,
+                                             ignoreBounds=True)
 
-                if not self.mne.crosshair_v:
-                    self.mne.crosshair_v = InfiniteLine(angle=90,
-                                                        movable=False)
-                    self.mne.plt.addItem(self.mne.crosshair_v,
-                                         ignoreBounds=True)
-                if not self.mne.crosshair_h:
-                    self.mne.crosshair_h = InfiniteLine(angle=0,
-                                                        movable=False)
-                    self.mne.plt.addItem(self.mne.crosshair_h,
-                                         ignoreBounds=True)
+                    # Get ypos from trace
+                    trace = [tr for tr in self.mne.traces if
+                             tr.ypos - 0.5 < y < tr.ypos + 0.5]
+                    if len(trace) == 1:
+                        trace = trace[0]
+                        idx = np.argmin(np.abs(trace.xData - x))
+                        y = trace.get_ydata()[idx]
 
-                # Get ypos from trace
-                trace = [tr for tr in self.mne.traces if
-                        tr.ypos - 0.5 < mousePoint.y() < tr.ypos + 0.5]
-                if len(trace) == 1:
-                    trace = trace[0]
-                    idx = np.argmin(np.abs(trace.xData - mousePoint.x()))
-                    y = trace.get_ydata()[idx]
+                        self.mne.crosshair_v.setPos(x)
+                        self.mne.crosshair_h.setPos(y)
 
-                    self.mne.crosshair_v.setPos(mousePoint.x())
-                    self.mne.crosshair_h.setPos(y)
-
-                    self.statusBar().showMessage(f'x={mousePoint.x()}, '
-                                                 f'y={mousePoint.y()}')
+                        self.statusBar().showMessage(f'x={x:.3f} s, y={y:.3f}')
 
     def _toggle_crosshair(self):
         self.mne.crosshair_enabled = not self.mne.crosshair_enabled
