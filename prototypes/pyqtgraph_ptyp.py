@@ -4,22 +4,23 @@ from functools import partial
 from itertools import cycle
 
 import numpy as np
-from PyQt5.QtCore import QEvent, QPoint
-from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap, QTransform
+from PyQt5.QtCore import QEvent, QPointF
+from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap, QTransform, QMouseEvent
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
                              QDockWidget, QDoubleSpinBox, QFormLayout,
                              QGridLayout, QHBoxLayout, QInputDialog, QLabel,
                              QMainWindow, QMessageBox, QPushButton, QScrollBar,
                              QSizePolicy, QWidget, QStyleOptionSlider, QStyle,
-                             QApplication)
+                             QApplication, QGraphicsView)
 from mne.utils import logger
 from mne.viz._figure import BrowserBase
 from mne.viz.utils import _get_color_list
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
-                       mkBrush, mkPen, setConfigOption, mkQApp)
+                       mkBrush, mkPen, setConfigOption, mkQApp, SignalProxy,
+                       GraphicsLayoutWidget)
 from pyqtgraph.Qt.QtCore import Qt, Signal
 
 name = 'pyqtgraph'
@@ -81,15 +82,15 @@ class RawTraceItem(PlotCurveItem):
             self.isbad = not self.isbad
             self.update_bad_color()
             self.sigClicked.emit(self, ev)
-    
+
     def get_xdata(self):
-        """Get data for testing."""
+        """Get xdata for testing."""
         return self.xData
-    
+
     def get_ydata(self):
-        """Get data for testing."""
-        return self.yData
-    
+        """Get ydata for testing."""
+        return self.yData + self.ypos
+
 
 class TimeAxis(AxisItem):
     """The X-Axis displaying the time."""
@@ -751,6 +752,9 @@ class BrowserView(GraphicsView):
             print('Gesture')
         return super().viewportEvent(event)
 
+    def mouseMoveEvent(self, ev):
+        self.sigSceneMouseMoved.emit(ev.pos())
+
 
 class _PGMetaClass(type(BrowserBase), type(QMainWindow)):
     """This is class is necessary to prevent a metaclass conflict.
@@ -879,7 +883,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         ax_hscroll.setLabel(text='Time', units='s')
         ax_vscroll = ChannelAxis(self)
         viewbox = RawViewBox(self)
-        vars(self.mne).update(ax_hscroll=ax_hscroll, ax_vscroll=ax_vscroll, viewbox=viewbox)
+        vars(self.mne).update(ax_hscroll=ax_hscroll, ax_vscroll=ax_vscroll,
+                              viewbox=viewbox)
 
         # Initialize data
         self._update_data()
@@ -952,6 +957,12 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         # Initialize VLine
         self.mne.vline = None
         self.mne.vline_visible = False
+
+        # Initialize crosshair (as in pyqtgraph example)
+        self.mne.crosshair_enabled = False
+        self.mne.crosshair_h = None
+        self.mne.crosshair_v = None
+        view.sigSceneMouseMoved.connect(self._mouse_moved)
 
         # Initialize Toolbar
         toolbar = self.addToolBar('Tools')
@@ -1134,6 +1145,46 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.vline = VLine(pos, bounds=(0, self.mne.xmax))
         self.mne.plt.addItem(self.mne.vline)
         self.mne.vline_visible = True
+
+    def _mouse_moved(self, pos):
+        """Show Crosshair if enabled at mouse move."""
+        if self.mne.crosshair_enabled:
+            if self.mne.plt.sceneBoundingRect().contains(pos):
+                mousePoint = self.mne.viewbox.mapSceneToView(pos)
+
+                if not self.mne.crosshair_v:
+                    self.mne.crosshair_v = InfiniteLine(angle=90,
+                                                        movable=False)
+                    self.mne.plt.addItem(self.mne.crosshair_v,
+                                         ignoreBounds=True)
+                if not self.mne.crosshair_h:
+                    self.mne.crosshair_h = InfiniteLine(angle=0,
+                                                        movable=False)
+                    self.mne.plt.addItem(self.mne.crosshair_h,
+                                         ignoreBounds=True)
+
+                # Get ypos from trace
+                trace = [tr for tr in self.mne.traces if
+                        tr.ypos - 0.5 < mousePoint.y() < tr.ypos + 0.5]
+                if len(trace) == 1:
+                    trace = trace[0]
+                    idx = np.argmin(np.abs(trace.xData - mousePoint.x()))
+                    y = trace.get_ydata()[idx]
+
+                    self.mne.crosshair_v.setPos(mousePoint.x())
+                    self.mne.crosshair_h.setPos(y)
+
+                    self.statusBar().showMessage(f'x={mousePoint.x()}, '
+                                                 f'y={mousePoint.y()}')
+
+    def _toggle_crosshair(self):
+        self.mne.crosshair_enabled = not self.mne.crosshair_enabled
+        if self.mne.crosshair_v:
+            self.mne.plt.removeItem(self.mne.crosshair_v)
+            self.mne.crosshair_v = None
+        if self.mne.crosshair_h:
+            self.mne.plt.removeItem(self.mne.crosshair_h)
+            self.mne.crosshair_h = None
 
     def toggle_annot_hint(self, annotation_mode):
         if annotation_mode:
@@ -1595,6 +1646,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             self._toggle_dc()
         elif event.key() == Qt.Key_F11:
             self._toggle_fullscreen()
+        elif event.key() == Qt.Key_X:
+            self._toggle_crosshair()
 
     def _redraw(self, update_data=True):
         if update_data:
@@ -1625,6 +1678,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         button = 2 if button == 3 else button
 
         # For Qt, fig or ax both would be the widget to test interaction on.
+        # If View
         fig = ax or fig or self.mne.view
 
         if xform == 'ax':
@@ -1639,23 +1693,23 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             x = view_width * point[0]
             y = view_height * (1 - point[1])
 
-            point = QPoint(x, y)
+            point = QPointF(x, y)
 
         elif xform == 'data':
             # For Qt, the equivalent of matplotlibs transData
-            # would be a transformation to Scene Coordinates.
-            # This only works with the QGraphicsView (self.mne.view)
+            # would be a transformation to the coordinate system of the ViewBox.
+            # This only works on the View (self.mne.view)
             fig = self.mne.view
-            point = fig.mapFromScene(*point)
+            point = self.mne.viewbox.mapViewToScene(QPointF(*point))
         else:
-            point = QPoint(point)
+            point = QPointF(point)
 
         if kind == 'press':
-            QTest.mousePress(fig, button, pos=point)
+            mousePress(widget=fig, pos=point, button=button)
         elif kind == 'release':
-            QTest.mouseRelease(fig, button, pos=point)
+            mouseRelease(widget=fig, pos=point, button=button)
         elif kind == 'motion':
-            QTest.mouseMove(fig, point)
+            mouseMove(widget=fig, pos=point)
 
     def _fake_scroll(self, x, y, step, fig=None):
         pass
@@ -1679,6 +1733,14 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             ax = self.mne.ax_vscroll
 
         return ax.get_labels()
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        event.ignore()
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        event.ignore()
 
     def closeEvent(self, event):
         event.accept()
@@ -1708,6 +1770,52 @@ for char in 'abcdefghijklmnopyqrstuvwxyz0123456789':
 
 def _get_n_figs():
     return len(QApplication.topLevelWidgets())
+
+
+# mouse testing functions from pyqtgraph (pyqtgraph.tests.ui_testing.py)
+def mousePress(widget, pos, button, modifier=None):
+    if isinstance(widget, QGraphicsView):
+        widget = widget.viewport()
+    if modifier is None:
+        modifier = Qt.KeyboardModifier.NoModifier
+    event = QMouseEvent(QEvent.Type.MouseButtonPress, pos, button,
+                        Qt.MouseButton.NoButton, modifier)
+    QApplication.sendEvent(widget, event)
+
+
+def mouseRelease(widget, pos, button, modifier=None):
+    if isinstance(widget, QGraphicsView):
+        widget = widget.viewport()
+    if modifier is None:
+        modifier = Qt.KeyboardModifier.NoModifier
+    event = QMouseEvent(QEvent.Type.MouseButtonRelease, pos,
+                        button, Qt.MouseButton.NoButton, modifier)
+    QApplication.sendEvent(widget, event)
+
+
+def mouseMove(widget, pos, buttons=None, modifier=None):
+    if isinstance(widget, QGraphicsView):
+        widget = widget.viewport()
+    if modifier is None:
+        modifier = Qt.KeyboardModifier.NoModifier
+    if buttons is None:
+        buttons = Qt.MouseButton.NoButton
+    event = QMouseEvent(QEvent.Type.MouseMove, pos,
+                        Qt.MouseButton.NoButton, buttons, modifier)
+    QApplication.sendEvent(widget, event)
+
+
+def mouseDrag(widget, pos1, pos2, button, modifier=None):
+    mouseMove(widget, pos1)
+    mousePress(widget, pos1, button, modifier)
+    mouseMove(widget, pos2, button, modifier)
+    mouseRelease(widget, pos2, button, modifier)
+
+
+def mouseClick(widget, pos, button, modifier=None):
+    mouseMove(widget, pos)
+    mousePress(widget, pos, button, modifier)
+    mouseRelease(widget, pos, button, modifier)
 
 
 def _init_browser(inst, figsize, **kwargs):
