@@ -1,3 +1,11 @@
+# Week 11
+## Tuesday, 2021-08-17
+- made progress with the fake-clicks
+- introduced crosshair to pyqtgraph-backend for troubleshooting fake-clicks
+
+## Monday, 2021-08-16
+- tried to make fake-clicks work with pyqtgraph-backend (got stuck, asked mentors for help)
+
 # Week 10
 ## Friday, 2021-08-13
 - worked on fake-clicks in pyqtgraph-backend
