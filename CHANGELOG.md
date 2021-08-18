@@ -1,4 +1,9 @@
 # Week 11
+## Wednesday, 2021-08-18
+- finally!! made fake-clicks work in pyqtgraph
+- adapted/refactored test_plot_raw_traces to pass for pyqtgraph
+- added butterfly- and zen-mode
+
 ## Tuesday, 2021-08-17
 - made progress with the fake-clicks
 - introduced crosshair to pyqtgraph-backend for troubleshooting fake-clicks

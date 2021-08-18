@@ -1774,7 +1774,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         elif xform == 'none':
             point = QPointF(*point)
 
-        print('Sending Mouse-Events')
         if kind == 'press':
             mouseClick(widget=fig, pos=point, button=button)
         elif kind == 'release':
