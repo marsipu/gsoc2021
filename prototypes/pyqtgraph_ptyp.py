@@ -16,11 +16,11 @@ from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
 from mne.utils import logger
 from mne.viz._figure import BrowserBase
 from mne.viz.utils import _get_color_list
+from mne.io.pick import _DATA_CH_TYPES_ORDER_DEFAULT
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
-                       mkBrush, mkPen, setConfigOption, mkQApp, SignalProxy,
-                       GraphicsLayoutWidget)
+                       mkBrush, mkPen, setConfigOption, mkQApp)
 from pyqtgraph.Qt.QtCore import Qt, Signal
 
 name = 'pyqtgraph'
@@ -48,11 +48,15 @@ class RawTraceItem(PlotCurveItem):
 
     def set_ch_idx(self, ch_idx):
         self.ch_idx = ch_idx
+        self.pick_idx = np.argwhere(self.mne.picks == self.ch_idx)[0][0]
         self.ch_name = self.mne.inst.ch_names[ch_idx]
-        self.isbad = self.ch_name in self.mne.inst.info['bads']
+        self.isbad = self.ch_name in self.mne.info['bads']
         self.ch_type = self.mne.ch_types[ch_idx]
         self.color = self.mne.ch_color_dict[self.ch_type]
-        self.ypos = np.argwhere(self.mne.ch_order == self.ch_idx)[0][0] + 1
+        if self.mne.butterfly:
+            self.ypos = self.mne.butterfly_type_order.index(self.ch_type) + 1
+        else:
+            self.ypos = np.argwhere(self.mne.ch_order == self.ch_idx)[0][0] + 1
 
     def set_data(self):
         if self.check_nan:
@@ -69,8 +73,16 @@ class RawTraceItem(PlotCurveItem):
             data_idx = np.argwhere(self.mne.picks == self.ch_idx)[0][0]
             data = self.mne.data[data_idx]
 
-        self.setData(self.mne.times, data,
-                     connect=connect, skipFiniteCheck=skip)
+        # Apply decim
+        if all([i is not None for i in [self.mne.decim_times,
+                                        self.mne.decim_data]]):
+            times = self.mne.decim_times[self.mne.decim_data[self.pick_idx]]
+            data = data[..., ::self.mne.decim_data[self.pick_idx]]
+        else:
+            times = self.mne.times
+
+        self.setData(times, data, connect=connect, skipFiniteCheck=skip)
+
         self.setPos(0, self.ypos)
 
     def mouseClickEvent(self, ev):
@@ -115,7 +127,7 @@ class TimeAxis(AxisItem):
             tick_strings = [str(v) for v in ts]
 
         elif self.mne.time_format == 'clock':
-            meas_date = self.mne.inst.info['meas_date']
+            meas_date = self.mne.info['meas_date']
             first_time = datetime.timedelta(seconds=self.mne.inst.first_time)
             digits = np.ceil(-np.log10(spacing) + 1).astype(int)
             tick_strings = list()
@@ -161,15 +173,28 @@ class ChannelAxis(AxisItem):
 
     def tickStrings(self, values, scale, spacing):
         # Get channel-names
-        ch_idxs = [v - 1 for v in values]
-        tick_strings = self.mne.ch_names[self.mne.ch_order[ch_idxs]]
+        if self.mne.butterfly and self.mne.fig_selection is not None:
+            exclude = ('Vertex', 'Custom')
+            ticklabels = list(self.mne.ch_selections)
+            keep_mask = np.in1d(ticklabels, exclude, invert=True)
+            ticklabels = [t.replace('Left-', 'L-').replace('Right-', 'R-')
+                          for t in ticklabels]  # avoid having to rotate labels
+            tick_strings = np.array(ticklabels)[keep_mask]
+        elif self.mne.butterfly:
+            _, ixs, _ = np.intersect1d(_DATA_CH_TYPES_ORDER_DEFAULT,
+                                       self.mne.ch_types, return_indices=True)
+            ixs.sort()
+            tick_strings = np.array(_DATA_CH_TYPES_ORDER_DEFAULT)[ixs]
+        else:
+            ch_idxs = [v - 1 for v in values]
+            tick_strings = self.mne.ch_names[self.mne.ch_order[ch_idxs]]
 
         return tick_strings
 
     def drawPicture(self, p, axisSpec, tickSpecs, textSpecs):
         super().drawPicture(p, axisSpec, tickSpecs, textSpecs)
         for rect, flags, text in textSpecs:
-            if text in self.mne.inst.info['bads']:
+            if text in self.mne.info['bads']:
                 p.setPen(functions.mkPen('r'))
             else:
                 p.setPen(functions.mkPen('k'))
@@ -319,10 +344,10 @@ class ChannelScrollBar(BaseScrollBar):
         self.valueChanged.connect(self.channel_changed)
 
     def channel_changed(self, value):
-        new_ymin = value
-        new_ymax = value + self.mne.n_channels + 1
+        value = min(value, self.mne.ymax - self.mne.n_channels)
         if not self.external_change:
-            self.mne.plt.setYRange(new_ymin, new_ymax, padding=0)
+            self.mne.plt.setYRange(value, value + self.mne.n_channels + 1,
+                                   padding=0)
 
     def update_value_external(self, value):
         # Mark change as external to avoid setting YRange again in
@@ -825,13 +850,17 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         BrowserBase.__init__(self, **kwargs)
         QMainWindow.__init__(self)
 
-        # Initialize attributes and add them to MNEBrowseParams
+        # Initialize attributes which are only used by pyqtgraph, not by
+        # matplotlib and add them to MNEBrowseParams.
         self.mne.ds_cache = dict()
         self.mne.global_changed = True
         self.mne.traces = list()
         self.mne.scale_factor = 1
         self.mne.time_decimals = int(np.ceil(
-            np.log10(self.mne.inst.info['sfreq'])))
+            np.log10(self.mne.info['sfreq'])))
+        self.mne.butterfly_type_order = [tp for tp in
+                                         _DATA_CH_TYPES_ORDER_DEFAULT
+                                         if tp in self.mne.ch_types]
 
         # Initialize annotations (ToDo: Adjust to MPL)
         self.mne.annotation_mode = False
@@ -880,11 +909,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         layout = QGridLayout()
 
         # Initialize Axis-Items
-        ax_hscroll = TimeAxis(self.mne)
-        ax_hscroll.setLabel(text='Time', units='s')
-        ax_vscroll = ChannelAxis(self)
+        time_axis = TimeAxis(self.mne)
+        time_axis.setLabel(text='Time', units='s')
+        channel_axis = ChannelAxis(self)
         viewbox = RawViewBox(self)
-        vars(self.mne).update(ax_hscroll=ax_hscroll, ax_vscroll=ax_vscroll,
+        vars(self.mne).update(time_axis=time_axis, channel_axis=channel_axis,
                               viewbox=viewbox)
 
         # Initialize data
@@ -892,7 +921,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Initialize Trace-Plot
         plt = PlotItem(viewBox=viewbox,
-                       axisItems={'bottom': ax_hscroll, 'left': ax_vscroll})
+                       axisItems={'bottom': time_axis, 'left': channel_axis})
         # Hide AutoRange-Button
         plt.hideButtons()
         # Configure XY-Range
@@ -900,7 +929,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         plt.setXRange(0, self.mne.duration, padding=0)
         # Add one empty line as padding at top (y=0).
         # Negative Y-Axis to display channels from top.
-        self.mne.ymax = len(self.mne.inst.ch_names) + 1
+        self.mne.ymax = len(self.mne.ch_order) + 1
         plt.setYRange(0, self.mne.n_channels + 1, padding=0)
         plt.setLimits(xMin=0, xMax=self.mne.xmax,
                       yMin=0, yMax=self.mne.ymax)
@@ -925,13 +954,13 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         layout.addWidget(view, 0, 0)
 
         # Initialize Scroll-Bars
-        time_bar = TimeScrollBar(self.mne)
+        ax_hscroll = TimeScrollBar(self.mne)
         plt.sigXRangeChanged.connect(self.xrange_changed)
-        layout.addWidget(time_bar, 1, 0)
+        layout.addWidget(ax_hscroll, 1, 0)
 
-        channel_bar = ChannelScrollBar(self.mne)
+        ax_vscroll = ChannelScrollBar(self.mne)
         plt.sigYRangeChanged.connect(self.yrange_changed)
-        layout.addWidget(channel_bar, 0, 1)
+        layout.addWidget(ax_vscroll, 0, 1)
 
         widget.setLayout(layout)
         self.setCentralWidget(widget)
@@ -966,38 +995,38 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         view.sigSceneMouseMoved.connect(self._mouse_moved)
 
         # Initialize Toolbar
-        toolbar = self.addToolBar('Tools')
+        self.toolbar = self.addToolBar('Tools')
 
         adecr_time = QAction('-Time', parent=self)
         adecr_time.triggered.connect(partial(self.change_duration,
                                              -self.mne.tsteps_per_window / 10))
-        toolbar.addAction(adecr_time)
+        self.toolbar.addAction(adecr_time)
 
         aincr_time = QAction('+Time', parent=self)
         aincr_time.triggered.connect(partial(self.change_duration,
                                              self.mne.tsteps_per_window / 10))
-        toolbar.addAction(aincr_time)
+        self.toolbar.addAction(aincr_time)
 
         adecr_nchan = QAction('-Channels', parent=self)
         adecr_nchan.triggered.connect(partial(self.change_nchan, -10))
-        toolbar.addAction(adecr_nchan)
+        self.toolbar.addAction(adecr_nchan)
 
         aincr_nchan = QAction('+Channels', parent=self)
         aincr_nchan.triggered.connect(partial(self.change_nchan, 10))
-        toolbar.addAction(aincr_nchan)
+        self.toolbar.addAction(aincr_nchan)
 
         atoggle_annot = QAction('Toggle Annotations', parent=self)
         atoggle_annot.triggered.connect(self._toggle_annotation_fig)
-        toolbar.addAction(atoggle_annot)
+        self.toolbar.addAction(atoggle_annot)
 
         ahelp = QAction('Help', parent=self)
         ahelp.triggered.connect(self._toggle_help_fig)
-        toolbar.addAction(ahelp)
+        self.toolbar.addAction(ahelp)
 
         # Add GUI-Elements to MNEBrowserParams-Instance
         vars(self.mne).update(
-            plt=plt, view=view, time_bar=time_bar, channel_bar=channel_bar,
-            fig_annotation=fig_annotation, toolbar=toolbar
+            plt=plt, view=view, ax_hscroll=ax_hscroll, ax_vscroll=ax_vscroll,
+            fig_annotation=fig_annotation, toolbar=self.toolbar
         )
 
     def _get_scale_transform(self):
@@ -1007,12 +1036,12 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         return transform
 
     def toggle_bad_channel(self, line):
-        if line.ch_name in self.mne.inst.info['bads']:
-            self.mne.inst.info['bads'].remove(line.ch_name)
+        if line.ch_name in self.mne.info['bads']:
+            self.mne.info['bads'].remove(line.ch_name)
             line.isbad = False
             print(f'{line.ch_name} removed from bad channels!')
         else:
-            self.mne.inst.info['bads'].append(line.ch_name)
+            self.mne.info['bads'].append(line.ch_name)
             line.isbad = True
             print(f'{line.ch_name} added to bad channels!')
 
@@ -1020,7 +1049,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         line.update_bad_color()
 
         # Update Channel-Axis
-        self.mne.ax_vscroll.redraw()
+        self.mne.channel_axis.redraw()
 
     def add_trace(self, ch_idx):
         trace = RawTraceItem(self.mne, ch_idx)
@@ -1203,21 +1232,23 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         # Update data
         self.mne.t_start = xrange[0]
         self.mne.duration = xrange[1] - xrange[0]
-        self._redraw(update_data=True)
+        self._redraw(update_data=True, annotations=self.mne.show_annotations)
 
         # Update Time-Bar
-        self.mne.time_bar.update_value_external(xrange)
-
-        # Update Annotations
-        if self.mne.show_annotations:
-            self.update_annot_range(*xrange)
+        self.mne.ax_hscroll.update_value_external(xrange)
 
     def yrange_changed(self, _, yrange):
-        # Update picks
-        self.mne.ch_start = round(yrange[0])
-        self.mne.n_channels = round(yrange[1] - yrange[0] - 1)
-        self._update_picks()
-        self._update_data()
+        if not self.mne.butterfly:
+            # Update picks and data
+            self.mne.ch_start = np.clip(round(yrange[0]), 0,
+                                        len(self.mne.ch_order)
+                                        - self.mne.n_channels)
+            self.mne.n_channels = round(yrange[1] - yrange[0] - 1)
+            self._update_picks()
+            self._update_data()
+
+            # Update Channel-Bar
+            self.mne.ax_vscroll.update_ch_start()
 
         off_traces = [tr for tr in self.mne.traces
                       if tr.ch_idx not in self.mne.picks]
@@ -1245,9 +1276,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             trace.set_ch_idx(ch_idx)
             trace.update_bad_color()
             trace.set_data()
-
-        # Update Channel-Bar
-        self.mne.channel_bar.update_ch_start()
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # DATA HANDLING
@@ -1475,7 +1503,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                                                 self.mne.time_decimals)
         self.mne.annotations.duration[idx] = rgn[1] - rgn[0]
 
-    def update_annot_range(self, xmin, xmax):
+    def _draw_annotations(self):
+        xmin, xmax = self.mne.plt.viewRange()[0]
         inside_onsets = self.mne.annotations.onset[
             np.where(
                 (self.mne.annotations.onset + self.mne.annotations.duration
@@ -1505,7 +1534,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.annotations.append(onset + self.mne.first_time, duration,
                                     self.mne.current_description)
         self.add_region(onset, duration, self.mne.current_description, region)
-        self.update_annot_range(*self.mne.plt.viewRange()[0])
 
     def change_annot_mode(self):
         if self.mne.show_annotations:
@@ -1540,8 +1568,24 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             self.mne.fig_help = None
 
     def _toggle_butterfly(self):
-        # ToDo: Still needs to be implemented
-        pass
+        self.mne.butterfly = not self.mne.butterfly
+        self.mne.ax_vscroll.setVisible(not self.mne.butterfly)
+
+        self._update_picks()
+        self._update_data()
+        self._get_decim()
+
+        if self.mne.butterfly:
+            # ToDo: Butterfly + Selection
+            ymax = len(self.mne.butterfly_type_order) + 1
+            self.mne.plt.setLimits(yMax=ymax)
+            self.mne.plt.setYRange(0, ymax, padding=0)
+        else:
+            self.mne.plt.setLimits(yMax=self.mne.ymax)
+            self.mne.plt.setYRange(self.mne.ch_start,
+                                   self.mne.ch_start + self.mne.n_channels + 1,
+                                   padding=0)
+        self._draw_traces()
 
     def _toggle_dc(self):
         self.mne.remove_dc = not self.mne.remove_dc
@@ -1550,11 +1594,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def _toggle_time_format(self):
         if self.mne.time_format == 'float':
             self.mne.time_format = 'clock'
-            self.mne.ax_hscroll.setLabel(text='Time')
+            self.mne.time_axis.setLabel(text='Time')
         else:
             self.mne.time_format = 'float'
-            self.mne.ax_hscroll.setLabel(text='Time', units='s')
-        self.mne.ax_hscroll.refresh()
+            self.mne.time_axis.setLabel(text='Time', units='s')
+        self.mne.time_axis.refresh()
 
     def _toggle_fullscreen(self):
         if self.isFullScreen():
@@ -1562,19 +1606,19 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         else:
             self.showFullScreen()
 
+    def _toggle_zenmode(self):
+        self.mne.scrollbars_visible = not self.mne.scrollbars_visible
+        for bar in [self.mne.ax_hscroll, self.mne.ax_vscroll]:
+            bar.setVisible(self.mne.scrollbars_visible)
+        self.toolbar.setVisible(self.mne.scrollbars_visible)
+
     def _update_trace_offsets(self):
         pass
 
     def _create_selection_fig(self):
         pass
 
-    def _draw_traces(self):
-        pass
-
     def _setup_annotation_colors(self):
-        pass
-
-    def _draw_annotations(self):
         pass
 
     def _toggle_proj_fig(self):
@@ -1635,6 +1679,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             self.scale_all(1)
         elif event.key() == Qt.Key_A:
             self._toggle_annotation_fig()
+        elif event.key() == Qt.Key_B:
+            self._toggle_butterfly()
         elif event.key() == Qt.Key_T:
             self._toggle_time_format()
         elif event.key() == Qt.Key_Question:
@@ -1650,14 +1696,30 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             self._toggle_fullscreen()
         elif event.key() == Qt.Key_X:
             self._toggle_crosshair()
+        elif event.key() == Qt.Key_Z:
+            self._toggle_zenmode()
 
-    def _redraw(self, update_data=True):
-        if update_data:
-            self._update_data()
+    def _get_decim(self):
+        # decim
+        self.mne.decim_data = np.ones_like(self.mne.picks)
+        data_picks_mask = np.in1d(self.mne.picks, self.mne.picks_data)
+        self.mne.decim_data[data_picks_mask] = self.mne.decim
+        # decim can vary by channel type, so compute different `times` vectors
+        self.mne.decim_times = {decim_value:
+                                    self.mne.times[::decim_value]
+                                    + self.mne.first_time
+                                for decim_value in set(self.mne.decim_data)}
+
+    def _draw_traces(self):
+        # Get decim (in BrowserBase)
+        self._get_decim()
 
         # Update data in traces
         for trace in self.mne.traces:
             trace.set_data()
+
+    def _redraw(self, update_data=True, annotations=False):
+        super()._redraw(update_data, annotations)
 
     def _close_event(self, fig=None):
         fig = fig or self
@@ -1680,7 +1742,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         QTest.qWaitForWindowExposed(self)
         # Scene-Dimensions still seem to change to final state when waiting
         # for a short time.
-        QTest.qWait(100)
+        QTest.qWait(10)
 
         # Qt: right-button=2, matplotlib: right-button=3
         button = 2 if button == 3 else button
@@ -1709,7 +1771,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             # This only works on the View (self.mne.view)
             fig = self.mne.view
             point = self.mne.viewbox.mapViewToScene(QPointF(*point))
-        else:
+        elif xform == 'none':
             point = QPointF(*point)
 
         print('Sending Mouse-Events')
@@ -1721,30 +1783,31 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             mouseMove(widget=fig, pos=point)
 
         # Waiting some time for events to be processed.
-        QTest.qWait(100)
+        QTest.qWait(10)
 
     def _fake_scroll(self, x, y, step, fig=None):
         pass
 
     def _click_ch_name(self, ch_index, button):
-        ch_name = self.mne.ch_names[ch_index]
-        xrange, yrange = self.mne.ax_vscroll.ch_texts[ch_name]
-        x = np.mean(xrange)
-        y = np.mean(yrange)
+        if not self.mne.butterfly:
+            ch_name = self.mne.ch_names[self.mne.picks[ch_index]]
+            xrange, yrange = self.mne.channel_axis.ch_texts[ch_name]
+            x = np.mean(xrange)
+            y = np.mean(yrange)
 
-        self._fake_click((x, y), fig=self.mne.view, button=button,
-                         xform='other')
+            self._fake_click((x, y), fig=self.mne.view, button=button,
+                             xform='none')
 
     def _resize_by_factor(self, factor):
         pass
 
     def _get_ticklabels(self, orientation):
         if orientation == 'x':
-            ax = self.mne.ax_hscroll
+            ax = self.mne.time_axis
         else:
-            ax = self.mne.ax_vscroll
+            ax = self.mne.channel_axis
 
-        return ax.get_labels()
+        return list(ax.get_labels())
 
     def closeEvent(self, event):
         event.accept()
@@ -1773,8 +1836,10 @@ for char in 'abcdefghijklmnopyqrstuvwxyz0123456789':
 
 
 def _get_n_figs():
-    return len(QApplication.topLevelWidgets())
+    return len(QApplication.allWindows())
 
+def _close_all():
+    QApplication.closeAllWindows()
 
 # mouse testing functions from pyqtgraph (pyqtgraph.tests.ui_testing.py)
 def mousePress(widget, pos, button, modifier=None):

@@ -22,7 +22,6 @@
 - [ ] Overview-Bar
 - [ ] Event Lines
 - [ ] Scale-Bars/Legends
-- [ ] Channel-Clipping
 - [X] Zoom Duration/N-Channels
 - [X] Vertical Line
 - [X] Mark Channels (including channel-label)
@@ -30,7 +29,8 @@
 
 ## Additional (after GSoC)
 - [ ] Applying projections
-- [ ] Butterfly-Mode
+- [X] Butterfly-Mode
+- [ ] Channel-Clipping
 - [ ] adaption to Epochs
 - [ ] Per-channel-annotation
 - [ ] Group channels (group_by-parameter)
