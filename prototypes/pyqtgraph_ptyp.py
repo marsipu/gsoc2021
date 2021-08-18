@@ -173,7 +173,8 @@ class ChannelAxis(AxisItem):
                 p.setPen(functions.mkPen('r'))
             else:
                 p.setPen(functions.mkPen('k'))
-            self.ch_texts[text] = (rect.top(), rect.top() + rect.height())
+            self.ch_texts[text] = ((rect.left(), rect.left() + rect.width()),
+                                   (rect.top(), rect.top() + rect.height()))
             p.drawText(rect, int(flags), text)
 
     def redraw(self):
@@ -186,14 +187,14 @@ class ChannelAxis(AxisItem):
                          if k in [tr.ch_name for tr in self.mne.traces]}
         # Get channel-name from position of channel-description
         ypos = event.scenePos().y()
-        ch_name = [chn for chn in self.ch_texts
-                   if self.ch_texts[chn][0] < ypos < self.ch_texts[chn][1]]
-        if len(ch_name) > 0:
-            ch_name = ch_name[0]
-            print(f'{ch_name} clicked!')
-            line = [li for li in self.mne.traces
-                    if li.ch_name == ch_name][0]
-            self.main.toggle_bad_channel(line)
+        for ch_name in self.ch_texts:
+            ymin, ymax = self.ch_texts[ch_name][1]
+            if ymin < ypos < ymax:
+                print(f'{ch_name} clicked!')
+                line = [li for li in self.mne.traces
+                        if li.ch_name == ch_name][0]
+                self.main.toggle_bad_channel(line)
+                break
         # return super().mouseClickEvent(event)
 
     def get_labels(self):
@@ -1675,6 +1676,12 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def _fake_click(self, point, fig=None, ax=None,
                     xform='ax', button=1, kind='press'):
 
+        # Wait until Window is fully shown.
+        QTest.qWaitForWindowExposed(self)
+        # Scene-Dimensions still seem to change to final state when waiting
+        # for a short time.
+        QTest.qWait(100)
+
         # Qt: right-button=2, matplotlib: right-button=3
         button = 2 if button == 3 else button
 
@@ -1703,26 +1710,30 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             fig = self.mne.view
             point = self.mne.viewbox.mapViewToScene(QPointF(*point))
         else:
-            point = QPointF(point)
+            point = QPointF(*point)
 
+        print('Sending Mouse-Events')
         if kind == 'press':
-            mousePress(widget=fig, pos=point, button=button)
+            mouseClick(widget=fig, pos=point, button=button)
         elif kind == 'release':
             mouseRelease(widget=fig, pos=point, button=button)
         elif kind == 'motion':
             mouseMove(widget=fig, pos=point)
 
+        # Waiting some time for events to be processed.
+        QTest.qWait(100)
+
     def _fake_scroll(self, x, y, step, fig=None):
         pass
 
     def _click_ch_name(self, ch_index, button):
-        yrange = self.mne.ax_vscroll.ch_texts[ch_index]
+        ch_name = self.mne.ch_names[ch_index]
+        xrange, yrange = self.mne.ax_vscroll.ch_texts[ch_name]
+        x = np.mean(xrange)
         y = np.mean(yrange)
-        x = self.mne.ax_vscroll.scene().width() / 2
-        point = self.mne.ax_vscroll.mapFromScene(x, y)
-        pos = point.x(), point.y()
 
-        self._fake_click(pos, fig=self.mne.ax_vscroll, button=button)
+        self._fake_click((x, y), fig=self.mne.view, button=button,
+                         xform='other')
 
     def _resize_by_factor(self, factor):
         pass
@@ -1734,14 +1745,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             ax = self.mne.ax_vscroll
 
         return ax.get_labels()
-
-    def mouseMoveEvent(self, event):
-        super().mouseMoveEvent(event)
-        event.ignore()
-
-    def mousePressEvent(self, event):
-        super().mousePressEvent(event)
-        event.ignore()
 
     def closeEvent(self, event):
         event.accept()
