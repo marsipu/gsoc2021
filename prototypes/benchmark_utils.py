@@ -15,12 +15,13 @@ from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
                              QListWidget, QMainWindow,
                              QMessageBox, QPushButton, QScrollArea,
                              QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
-                             QTabWidget, QFileDialog)
+                             QTabWidget, QFileDialog, QFormLayout,
+                             QDoubleSpinBox, QGroupBox)
 from mne.preprocessing import ICA
 from mne.viz._figure import set_browser_backend
 from mne.viz.utils import _get_color_list
 from pyqtgraph import PlotDataItem, PlotWidget, mkPen, time, BarGraphItem, \
-    mkBrush
+    mkBrush, GroupBox
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
 
@@ -247,6 +248,62 @@ class ResultDialog(QDialog):
         layout.addWidget(scroll_area)
 
         self.setLayout(layout)
+
+
+class FakeClickDialog(QDialog):
+    def __init__(self, parent_widget):
+        super().__init__(parent_widget)
+        self.pw = parent_widget
+
+        self.init_ui()
+        self.show()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        params_bx = QGroupBox('Fake Click Parameters')
+        bx_layout = QFormLayout()
+        self.xbox = QDoubleSpinBox()
+        self.xbox.setMaximum(1e6)
+        bx_layout.addRow('X:', self.xbox)
+        self.ybox = QDoubleSpinBox()
+        self.xbox.setMaximum(1e6)
+        bx_layout.addRow('Y:', self.ybox)
+        self.button_cmbx = QComboBox()
+        self.button_cmbx.addItems(['left', 'right'])
+        self.button_cmbx.setCurrentIndex(0)
+        bx_layout.addRow('Button:', self.button_cmbx)
+        self.xform_cmbx = QComboBox()
+        self.xform_cmbx.addItems(['ax', 'data', 'none'])
+        self.xform_cmbx.setCurrentIndex(0)
+        bx_layout.addRow('Transform:', self.xform_cmbx)
+        self.target_cmbx = QComboBox()
+        self.target_cmbx.addItems(['view', 'ax_hscroll', 'ax_vscroll'])
+        self.target_cmbx.setCurrentIndex(0)
+        bx_layout.addRow('Target:', self.target_cmbx)
+        self.kind_cmbx = QComboBox()
+        self.kind_cmbx.addItems(['press', 'release', 'motion'])
+        self.kind_cmbx.setCurrentIndex(0)
+        bx_layout.addRow('Kind:', self.kind_cmbx)
+        params_bx.setLayout(bx_layout)
+        layout.addWidget(params_bx)
+
+        click_bt = QPushButton('Click')
+        click_bt.clicked.connect(self.make_fake_click)
+        layout.addWidget(click_bt)
+
+        self.setLayout(layout)
+
+    def make_fake_click(self):
+        x = self.xbox.value()
+        y = self.ybox.value()
+        trans = self.xform_cmbx.currentText()
+        target = getattr(self.pw.backend.mne, self.target_cmbx.currentText())
+        button_text = self.button_cmbx.currentText()
+        button = 1 if button_text == 'left' else 3
+        kind = self.kind_cmbx.currentText()
+        self.pw.backend._fake_click((x, y), ax=target, button=button,
+                                   xform=trans, kind=kind)
 
 
 class BenchmarkWindow(QMainWindow):
@@ -511,6 +568,10 @@ class BenchmarkWindow(QMainWindow):
         aedit_bm = QAction('Benchmark-Queue', parent=self)
         aedit_bm.triggered.connect(partial(BenchmarkEditor, self))
         self.toolbar.addAction(aedit_bm)
+
+        afake_clickdlg = QAction('Fake Click', parent=self)
+        afake_clickdlg.triggered.connect(partial(FakeClickDialog, self))
+        self.toolbar.addAction(afake_clickdlg)
 
     def open_file(self):
         file_path = QFileDialog.getOpenFileName(self,
