@@ -4,27 +4,28 @@ from functools import partial
 from itertools import cycle
 
 import numpy as np
-from PyQt5.QtCore import QEvent, QPointF
-from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap, QTransform, QMouseEvent
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
-                             QDockWidget, QDoubleSpinBox, QFormLayout,
-                             QGridLayout, QHBoxLayout, QInputDialog, QLabel,
-                             QMainWindow, QMessageBox, QPushButton, QScrollBar,
-                             QSizePolicy, QWidget, QStyleOptionSlider, QStyle,
-                             QApplication, QGraphicsView)
+from mne.io.pick import _DATA_CH_TYPES_ORDER_DEFAULT
 from mne.utils import logger
 from mne.viz._figure import BrowserBase
 from mne.viz.utils import _get_color_list
-from mne.io.pick import _DATA_CH_TYPES_ORDER_DEFAULT
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
                        mkBrush, mkPen, setConfigOption, mkQApp)
-from pyqtgraph.Qt.QtCore import Qt, Signal
+from pyqtgraph.Qt.QtCore import (QEvent, QPointF, Qt, Signal, QRunnable,
+                                 QObject, QThreadPool)
+from pyqtgraph.Qt.QtGui import (QColor, QFont, QIcon, QPixmap, QTransform,
+                                QMouseEvent)
+from pyqtgraph.Qt.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
+                                    QDockWidget, QDoubleSpinBox, QFormLayout,
+                                    QGridLayout, QHBoxLayout, QInputDialog,
+                                    QLabel, QMainWindow, QMessageBox,
+                                    QPushButton, QScrollBar, QSizePolicy,
+                                    QWidget, QStyleOptionSlider, QStyle,
+                                    QApplication, QGraphicsView, QProgressBar)
+from qtpy.QtTest import QTest
 
 name = 'pyqtgraph'
-
 
 class RawTraceItem(PlotCurveItem):
     """Graphics-Object for single data trace."""
@@ -49,6 +50,7 @@ class RawTraceItem(PlotCurveItem):
     def set_ch_idx(self, ch_idx):
         self.ch_idx = ch_idx
         self.pick_idx = np.argwhere(self.mne.picks == self.ch_idx)[0][0]
+        self.order_idx = np.argwhere(self.mne.ch_order == self.ch_idx)[0][0]
         self.ch_name = self.mne.inst.ch_names[ch_idx]
         self.isbad = self.ch_name in self.mne.info['bads']
         self.ch_type = self.mne.ch_types[ch_idx]
@@ -56,7 +58,7 @@ class RawTraceItem(PlotCurveItem):
         if self.mne.butterfly:
             self.ypos = self.mne.butterfly_type_order.index(self.ch_type) + 1
         else:
-            self.ypos = np.argwhere(self.mne.ch_order == self.ch_idx)[0][0] + 1
+            self.ypos = self.order_idx + 1
 
     def set_data(self):
         if self.check_nan:
@@ -66,12 +68,10 @@ class RawTraceItem(PlotCurveItem):
             connect = 'all'
             skip = True
 
-        if self.mne.preload:
-            data = self.mne.data[self.ch_idx]
+        if self.mne.data_preloaded:
+            data = self.mne.data[self.order_idx]
         else:
-            # If local, ypos = index + 1 of data
-            data_idx = np.argwhere(self.mne.picks == self.ch_idx)[0][0]
-            data = self.mne.data[data_idx]
+            data = self.mne.data[self.pick_idx]
 
         # Apply decim
         if all([i is not None for i in [self.mne.decim_times,
@@ -782,6 +782,59 @@ class BrowserView(GraphicsView):
         self.sigSceneMouseMoved.emit(ev.pos())
 
 
+class LoadRunnerSignals(QObject):
+    loadProgress = Signal(int)
+    processText = Signal(str)
+    loadingFinished = Signal()
+
+
+class LoadRunner(QRunnable):
+    def __init__(self, browser):
+        super().__init__()
+        self.browser = browser
+        self.mne = browser.mne
+        self.sigs = LoadRunnerSignals()
+
+    def run(self):
+        """Load and process data in a separate QThread."""
+        # Split data loading into 100 chunks to show user progress.
+        data = None
+        times = None
+        if not self.mne.is_epochs:
+            chunk_size = len(self.browser.mne.inst) // 100
+            for n in range(100):
+                start = n * chunk_size
+                if n == 99:
+                    # Get last chunk which may be larger due to rounding above
+                    stop = None
+                else:
+                    stop = start + chunk_size
+                # Load data
+                data_chunk, times_chunk = self.browser._load_data(start, stop)
+                if data is None:
+                    data = data_chunk
+                    times = times_chunk
+                else:
+                    data = np.concatenate((data, data_chunk), axis=1)
+                    times = np.concatenate((times, times_chunk), axis=0)
+                self.sigs.loadProgress.emit(n + 1)
+        else:
+            self.browser._load_data()
+            self.sigs.loadProgress.emit(100)
+
+        picks = self.browser.mne.ch_order
+        data = self.browser._process_data(data, start, stop, picks,
+                                          self.sigs)
+
+        # Invert Data to be displayed from top on inverted Y-Axis.
+        data *= -1
+
+        self.browser.mne.global_data = data
+        self.browser.mne.global_times = times
+
+        self.sigs.loadingFinished.emit()
+
+
 class _PGMetaClass(type(BrowserBase), type(QMainWindow)):
     """This is class is necessary to prevent a metaclass conflict.
 
@@ -843,7 +896,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                                       tsteps_per_window=100,
                                       check_nan=False,
                                       remove_dc=True,
-                                      preload=False)
+                                      preload=True)
         for kw in [k for k in self.pg_kwarg_defaults if k not in kwargs]:
             kwargs[kw] = self.pg_kwarg_defaults[kw]
 
@@ -853,7 +906,17 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         # Initialize attributes which are only used by pyqtgraph, not by
         # matplotlib and add them to MNEBrowseParams.
         self.mne.ds_cache = dict()
-        self.mne.global_changed = True
+        self.mne.data_preloaded = False
+
+        # Add Load-Progressbar for loading in a thread
+        self.mne.load_prog_label = QLabel('Loading...')
+        self.statusBar().addWidget(self.mne.load_prog_label)
+        self.mne.load_prog_label.hide()
+        self.mne.load_progressbar = QProgressBar()
+        self.mne.load_progressbar.setRange(0, 100)
+        self.statusBar().addWidget(self.mne.load_progressbar, stretch=1)
+        self.mne.load_progressbar.hide()
+
         self.mne.traces = list()
         self.mne.scale_factor = 1
         self.mne.time_decimals = int(np.ceil(
@@ -904,6 +967,10 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             ('t', 'Toggle time format')
         ]
 
+        # Start preloading if enabled
+        if self.mne.preload:
+            self._preload_in_thread()
+
         # Create centralWidget and layout
         widget = QWidget()
         layout = QGridLayout()
@@ -916,7 +983,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         vars(self.mne).update(time_axis=time_axis, channel_axis=channel_axis,
                               viewbox=viewbox)
 
-        # Initialize data
+        # Initialize data (needed in RawTraceItem.set_data).
+        # This could be optimized.
         self._update_data()
 
         # Initialize Trace-Plot
@@ -1186,12 +1254,14 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                         0 <= y <= self.mne.ymax):
                     if not self.mne.crosshair_v:
                         self.mne.crosshair_v = InfiniteLine(angle=90,
-                                                            movable=False)
+                                                            movable=False,
+                                                            pen='g')
                         self.mne.plt.addItem(self.mne.crosshair_v,
                                              ignoreBounds=True)
                     if not self.mne.crosshair_h:
                         self.mne.crosshair_h = InfiniteLine(angle=0,
-                                                            movable=False)
+                                                            movable=False,
+                                                            pen='g')
                         self.mne.plt.addItem(self.mne.crosshair_h,
                                              ignoreBounds=True)
 
@@ -1319,9 +1389,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             data = self.mne.data
             n_ch = data.shape[0]
 
-            if ds in self.mne.ds_cache:
+            if self.mne.enable_ds_cache and ds in self.mne.ds_cache:
                 # Caching is only activated if downsampling is applied
-                # on all of the data.
+                # on the preloaded data.
                 times, data = self.mne.ds_cache[ds]
             else:
                 if self.mne.ds_method == 'subsample':
@@ -1353,61 +1423,51 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                     y1[:, :, 1] = y2.min(axis=2)
                     data = y1.reshape((n_ch, n * 2))
 
+                # Only cache downsampled data if cache is enabled
+                # (may be not with big datasets)
                 if self.mne.enable_ds_cache and \
-                        self.mne.preload:
+                        self.mne.preload and self.mne.data_preloaded:
                     self.mne.ds_cache[ds] = times, data
 
             self.mne.times, self.mne.data = times, data
 
+    def _show_process(self, message):
+        if self.mne.load_progressbar.isVisible():
+            self.mne.load_progressbar.hide()
+            self.mne.load_prog_label.hide()
+        self.statusBar().showMessage(message)
+
+    def _preload_finished(self):
+        self.statusBar().showMessage('Loading Finished', 5)
+        self.mne.data_preloaded = True
+
+    def _preload_in_thread(self):
+        self.mne.data_preloaded = False
+        # Remove previously loaded data
+        if all([hasattr(self.mne, st)
+                for st in ['global_data', 'global_times']]):
+            del self.mne.global_data, self.mne.global_times
+        # Start preload thread
+        self.mne.load_progressbar.show()
+        self.mne.load_prog_label.show()
+        load_runner = LoadRunner(self)
+        load_runner.sigs.loadProgress.connect(self.mne.
+                                              load_progressbar.setValue)
+        load_runner.sigs.processText.connect(self._show_process)
+        load_runner.sigs.loadingFinished.connect(self._preload_finished)
+        QThreadPool.globalInstance().start(load_runner)
+
     def _update_data(self):
-        if self.mne.preload:
-            # This is just an experimental feature
-            # which won't be further developed for now.
-            # Data has to be reloaded and processed, when:
-            #   - projectors toggled
-            #   - dc toggled (actually dc should be only applied on visible
-            #   range but this could be changed if global stays an option)
-            #   - filter-settings change (probably not useful here)
-            if self.mne.global_changed:
-                # Load and preprocess all data instead of slice
-                old_duration = self.mne.duration
-                self.mne.duration = self.mne.inst.times[-1]
-                self.mne.picks = np.arange(self.mne.ch_names.shape[0])
-                old_remove_dc = self.mne.remove_dc
-                self.mne.remove_dc = False
-                super()._update_data()
-                self.mne.remove_dc = old_remove_dc
-                # Store processed times and data
-                self.mne.global_data = self.mne.data
-                self.mne.global_times = self.mne.times
-                # Revert to real values of duration and picks
-                self.mne.duration = old_duration
-                self._update_picks()
-
-                self.mne.global_changed = False
-
-                # Invert Data to be displayed from top on inverted Y-Axis.
-                self.mne.data *= -1
-
+        if self.mne.data_preloaded:
             # get start/stop-samples
-            start_sec = self.mne.t_start - self.mne.first_time
-            stop_sec = start_sec + self.mne.duration
-            if self.mne.is_epochs:
-                start, stop = np.round(np.array([start_sec, stop_sec])
-                                       * self.mne.info['sfreq']).astype(int)
-            else:
-                start, stop = self.mne.inst.time_as_index(
-                    (start_sec, stop_sec))
+            start, stop = self._get_start_stop()
             self.mne.times = self.mne.global_times[start:stop]
             self.mne.data = self.mne.global_data[:, start:stop]
 
-            # remove DC
+            # remove DC locally
             if self.mne.remove_dc:
                 self.mne.data = self.mne.data - \
                                 self.mne.data.mean(axis=1, keepdims=True)
-            else:
-                self.mne.data = self.mne.global_data[:, start:stop]
-
         else:
             super()._update_data()
 
@@ -1837,8 +1897,10 @@ for char in 'abcdefghijklmnopyqrstuvwxyz0123456789':
 def _get_n_figs():
     return len(QApplication.allWindows())
 
+
 def _close_all():
     QApplication.closeAllWindows()
+
 
 # mouse testing functions from pyqtgraph (pyqtgraph.tests.ui_testing.py)
 def mousePress(widget, pos, button, modifier=None):
