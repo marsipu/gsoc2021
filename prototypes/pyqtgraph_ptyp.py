@@ -688,6 +688,9 @@ class AnnotationDock(QDockWidget):
         self.mne = main.mne
         self.init_ui()
 
+        self.setFeatures(QDockWidget.DockWidgetMovable |
+                         QDockWidget.DockWidgetFloatable)
+
     def init_ui(self):
         widget = QWidget()
         layout = QHBoxLayout()
@@ -1214,7 +1217,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         vars(self.mne).update(fig_annotation=fig_annotation)
 
         # Initialize other widgets associated to annotations.
-        self.annot_mode_hint = None
         self.change_annot_mode()
 
         if self.mne.show_annotations:
@@ -1464,17 +1466,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         if self.mne.crosshair_h:
             self.mne.plt.removeItem(self.mne.crosshair_h)
             self.mne.crosshair_h = None
-
-    def toggle_annot_hint(self, annotation_mode):
-        if annotation_mode:
-            self.annot_mode_hint = TextItem('Annotation-Mode', color='r',
-                                            anchor=(0, 0))
-            self.annot_mode_hint.setPos(0, 0)
-            self.annot_mode_hint.setFont(QFont('AnyStyle', 20, QFont.Bold))
-            self.mne.plt.addItem(self.annot_mode_hint)
-        elif self.annot_mode_hint:
-            self.mne.plt.removeItem(self.annot_mode_hint)
-            self.annot_mode_hint = None
 
     def xrange_changed(self, _, xrange):
         # Update data
@@ -1848,9 +1839,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             if not self.mne.annotation_mode and self.mne.selected_region:
                 self.mne.selected_region.select(False)
                 self.mne.selected_region = None
-
-            # Show label for Annotation-Mode.
-            self.toggle_annot_hint(self.mne.annotation_mode)
 
     def _toggle_annotation_fig(self):
         self.mne.annotation_mode = not self.mne.annotation_mode
