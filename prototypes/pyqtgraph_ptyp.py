@@ -16,7 +16,8 @@ from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
                              QLabel, QMainWindow, QMessageBox,
                              QPushButton, QScrollBar, QSizePolicy,
                              QWidget, QStyleOptionSlider, QStyle,
-                             QApplication, QGraphicsView, QProgressBar)
+                             QApplication, QGraphicsView, QProgressBar,
+                             QVBoxLayout, QLineEdit)
 from mne.io.pick import _DATA_CH_TYPES_ORDER_DEFAULT
 from mne.utils import logger
 from mne.viz._figure import BrowserBase
@@ -739,8 +740,7 @@ class AnnotationDock(QDockWidget):
 
     def add_description(self):
         new_description, ok = QInputDialog.getText(self,
-                                                   'Set the name for '
-                                                   'the new description!',
+                                                   'Set new description!',
                                                    'New description: ')
         if ok and new_description \
                 and new_description not in self.mne.descriptions:
@@ -750,24 +750,72 @@ class AnnotationDock(QDockWidget):
 
     def edit_description(self):
         curr_descr = self.description_cmbx.currentText()
-        ch_descr, ok = QInputDialog.getText(self, 'Set then name for '
-                                                  'the changed description!',
-                                            f'Change "{curr_descr}" to:')
-        if ok and ch_descr:
-            edit_regions = [r for r in self.mne.regions
-                            if r.description == curr_descr]
-            for ed_region in edit_regions:
-                idx = self.main._get_onset_idx(ed_region.getRegion()[0])
-                self.mne.annotations.description[idx] = ch_descr
-                ed_region.update_description(ch_descr)
-            self.mne.descriptions = list(set([ch_descr if i == curr_descr
-                                              else i for i in
-                                              self.mne.descriptions]))
-            self.mne.current_description = ch_descr
-            self.mne.annot_color_mapping[ch_descr] = \
-                self.mne.annot_color_mapping.pop(curr_descr)
-            self.update_description_cmbx()
-            self.main.update_colors()
+
+        # This is a inline approach of creating the dialog and thus preventing
+        # an additional class.
+        def get_edited_values():
+            ch_descr = input_w.text()
+            if mode_cmbx:
+                mode = mode_cmbx.currentText()
+            else:
+                mode = 'group'
+            if ch_descr:
+                if mode == 'group' or self.mne.selected_region is None:
+                    edit_regions = [r for r in self.mne.regions
+                                    if r.description == curr_descr]
+                    for ed_region in edit_regions:
+                        idx = self.main._get_onset_idx(ed_region.getRegion()[0])
+                        self.mne.annotations.description[idx] = ch_descr
+                        ed_region.update_description(ch_descr)
+                    # Do it like this to temporarily keep descriptions
+                    # without an annotation in self.mne.descriptions.
+                    self.mne.descriptions = [ch_descr if i == curr_descr else i
+                                             for i in self.mne.descriptions]
+                    self.mne.annot_color_mapping[ch_descr] = \
+                        self.mne.annot_color_mapping.pop(curr_descr)
+                else:
+                    idx = self.main._get_onset_idx(
+                        self.mne.selected_region.getRegion()[0])
+                    self.mne.annotations.description[idx] = ch_descr
+                    self.mne.selected_region.update_description(ch_descr)
+                    self.mne.annot_color_mapping[ch_descr] = \
+                        self.mne.annot_color_mapping[curr_descr]
+                    if curr_descr not in \
+                            self.mne.annotations.description:
+                        self.mne.descriptions.remove(curr_descr)
+                        self.mne.annot_color_mapping.pop(curr_descr)
+                self.mne.current_description = ch_descr
+                self.update_description_cmbx()
+                self.main.update_colors()
+
+            edit_dlg.close()
+
+        if len(self.mne.annotations.description) > 0:
+            edit_dlg = QDialog()
+            layout = QVBoxLayout()
+            if self.mne.selected_region:
+                mode_cmbx = QComboBox()
+                mode_cmbx.addItems(['group', 'current'])
+                layout.addWidget(QLabel('Edit Scope:'))
+                layout.addWidget(mode_cmbx)
+            else:
+                mode_cmbx = None
+            layout.addWidget(QLabel(f'Change "{curr_descr}" to:'))
+            input_w = QLineEdit()
+            layout.addWidget(input_w)
+            bt_layout = QHBoxLayout()
+            ok_bt = QPushButton('Ok')
+            ok_bt.clicked.connect(get_edited_values)
+            bt_layout.addWidget(ok_bt)
+            cancel_bt = QPushButton('Cancel')
+            cancel_bt.clicked.connect(edit_dlg.close)
+            bt_layout.addWidget(cancel_bt)
+            layout.addLayout(bt_layout)
+            edit_dlg.setLayout(layout)
+            edit_dlg.exec()
+        else:
+            QMessageBox.information(self, 'No Annotations!',
+                                    'Thre are no annotations yet to edit!')
 
     def remove_description(self):
         rm_description = self.description_cmbx.currentText()
