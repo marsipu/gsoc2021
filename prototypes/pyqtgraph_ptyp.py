@@ -706,15 +706,15 @@ class AnnotationDock(QDockWidget):
         add_bt.clicked.connect(self.add_description)
         layout.addWidget(add_bt)
 
-        edit_bt = QPushButton('Edit Description')
-        edit_bt.clicked.connect(self.edit_description)
-        layout.addWidget(edit_bt)
-
         rm_bt = QPushButton('Remove Description')
         rm_bt.clicked.connect(self.remove_description)
         layout.addWidget(rm_bt)
 
-        color_bt = QPushButton('Change Color')
+        edit_bt = QPushButton('Edit Description')
+        edit_bt.clicked.connect(self.edit_description)
+        layout.addWidget(edit_bt)
+
+        color_bt = QPushButton('Edit Color')
         color_bt.clicked.connect(self.set_color)
         layout.addWidget(color_bt)
 
@@ -767,7 +767,8 @@ class AnnotationDock(QDockWidget):
                     edit_regions = [r for r in self.mne.regions
                                     if r.description == curr_descr]
                     for ed_region in edit_regions:
-                        idx = self.main._get_onset_idx(ed_region.getRegion()[0])
+                        idx = self.main._get_onset_idx(
+                            ed_region.getRegion()[0])
                         self.mne.annotations.description[idx] = ch_descr
                         ed_region.update_description(ch_descr)
                     # Do it like this to temporarily keep descriptions
@@ -781,6 +782,7 @@ class AnnotationDock(QDockWidget):
                         self.mne.selected_region.getRegion()[0])
                     self.mne.annotations.description[idx] = ch_descr
                     self.mne.selected_region.update_description(ch_descr)
+                    self.mne.descriptions.append(ch_descr)
                     self.mne.annot_color_mapping[ch_descr] = \
                         self.mne.annot_color_mapping[curr_descr]
                     if curr_descr not in \
@@ -818,7 +820,7 @@ class AnnotationDock(QDockWidget):
             edit_dlg.exec()
         else:
             QMessageBox.information(self, 'No Annotations!',
-                                    'Thre are no annotations yet to edit!')
+                                    'There are no annotations yet to edit!')
 
     def remove_description(self):
         rm_description = self.description_cmbx.currentText()
@@ -850,8 +852,9 @@ class AnnotationDock(QDockWidget):
             self.mne.annot_color_mapping.pop(rm_description)
 
         # Set first description in Combo-Box to current description
-        self.description_cmbx.setCurrentIndex(0)
-        self.mne.current_description = self.description_cmbx.currentText()
+        if len(self.description_cmbx.count()) > 0:
+            self.description_cmbx.setCurrentIndex(0)
+            self.mne.current_description = self.description_cmbx.currentText()
 
     def description_changed(self, descr_idx):
         new_descr = self.description_cmbx.itemText(descr_idx)
@@ -1757,6 +1760,10 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         if region in self.mne.regions:
             self.mne.regions.remove(region)
 
+        # Reset selected region
+        if region == self.mne.selected_region:
+            self.mne.selected_region = None
+
         # Remove from annotations
         idx = self._get_onset_idx(region.getRegion()[0])
         self.mne.annotations.delete(idx)
@@ -1764,7 +1771,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def region_selected(self, region):
         old_region = self.mne.selected_region
         # Remove selected-status from old region
-        if old_region:
+        if old_region and old_region != region:
             old_region.selected = False
             old_region.update()
         self.mne.selected_region = region
@@ -1815,12 +1822,13 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             self.mne.plt.addItem(add_region.label_item)
             add_region.change_label_pos()
 
-    def add_annotation(self, onset, duration, region=None):
+    def add_annotation(self, onset, duration, region):
         """Add annotation to Annotations (onset is here the onset
         in the plot which is then adjusted with first_time)"""
         self.mne.annotations.append(onset + self.mne.first_time, duration,
                                     self.mne.current_description)
         self.add_region(onset, duration, self.mne.current_description, region)
+        region.select(True)
 
     def change_annot_mode(self):
         if self.mne.show_annotations:
