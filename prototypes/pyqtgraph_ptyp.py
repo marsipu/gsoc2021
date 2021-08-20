@@ -8,7 +8,7 @@ import numpy as np
 from PyQt5.QtCore import (QEvent, QPointF, Qt, pyqtSignal, QRunnable,
                           QObject, QThreadPool, QRectF)
 from PyQt5.QtGui import (QFont, QIcon, QPixmap, QTransform,
-                         QMouseEvent, QPainter, QImage)
+                         QMouseEvent, QPainter, QImage, QPen)
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
                              QDockWidget, QDoubleSpinBox, QFormLayout,
@@ -384,6 +384,7 @@ class OverviewBar(QLabel):
         self.setMinimumSize(1, 1)
         self.setFixedHeight(min_h)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.set_overview()
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -402,18 +403,15 @@ class OverviewBar(QLabel):
                 painter.drawLine(start, stop)
 
         # Paint view range
-        painter.setPen(mkColor('g'))
+        view_pen = QPen(mkColor('g'))
+        view_pen.setWidth(2)
+        painter.setPen(view_pen)
         top_left = self.mapFromData(self.mne.t_start, self.mne.ch_start)
         bottom_right = self.mapFromData(self.mne.t_start
                                         + self.mne.duration,
                                         self.mne.ch_start
                                         + self.mne.n_channels)
         painter.drawRect(QRectF(top_left, bottom_right))
-
-    def showEvent(self, event):
-        super().showEvent(event)
-
-        self.set_overview()
 
     def mousePressEvent(self, event):
         x, y = self.mapToData(event.pos())
@@ -438,7 +436,7 @@ class OverviewBar(QLabel):
 
     def set_overview(self):
         # Add Overview-Pixmap
-        if self.mne.overview_mode == 'channels':
+        if self.mne.overview_mode == 'channels' or not self.mne.preload:
             channel_rgba = np.empty((len(self.mne.ch_order),
                                      2, 4))
             for line_idx, ch_idx in enumerate(self.mne.ch_order):
@@ -1819,6 +1817,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     def _toggle_butterfly(self):
         self.mne.butterfly = not self.mne.butterfly
         self.mne.ax_vscroll.setVisible(not self.mne.butterfly)
+        self.mne.overview_bar.setVisible(not self.mne.butterfly)
 
         self._update_picks()
         self._update_data()
