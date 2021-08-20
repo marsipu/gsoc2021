@@ -887,6 +887,7 @@ class BrowserView(GraphicsView):
         return super().viewportEvent(event)
 
     def mouseMoveEvent(self, ev):
+        super().mouseMoveEvent(ev)
         self.sigSceneMouseMoved.emit(ev.pos())
 
 
