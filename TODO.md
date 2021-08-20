@@ -18,8 +18,8 @@
 - [X] channel-type colors
 - [X] Annotation-Management
 - [ ] Adapt Tests
-- [ ] Preload in Thread (with max. RAM-Space Parameter in config)
-- [ ] Overview-Bar
+- [X] Preload in Thread (with max. RAM-Space Parameter in config)
+- [X] Overview-Bar
 - [ ] Event Lines
 - [ ] Scale-Bars/Legends
 - [X] Zoom Duration/N-Channels
@@ -41,13 +41,13 @@
 
 ## Performance
 - [X] Downsampling-test (with artificial peak-file, no omission of peaks)
-- [ ] Profiling/Optimizing current code (range-update, LineItem-Initialization)
+- [X] Profiling/Optimizing current code (range-update, LineItem-Initialization)
 - [X] Compare sequential line-update or direct signal-connection on xrange-change
 - [X] Downsampling as in hdf5-example
 - [ ] Use numba (and other ideas as suggested in [#1478](https://github.com/pyqtgraph/pyqtgraph/issues/1478) from pyqtgraph)
 
 ## Annotations
-- [ ] Edit description/color of single annotation
+- [X] Edit description/color of single annotation
 
 ## User Interaction
 - [X] Arrow-Keys for left-right-movement
@@ -56,13 +56,12 @@
 - [ ] Pinching for zooming
 
 ## Codestyle
-- [ ] line-width 79 characters
+- [X] line-width 79 characters
 
 ## Advanced Features
-- [ ] change distance between channels dynamically (up to zero==butterfly)
-- [ ] custom colors for annotations (like in event-colors)
+- [ ] custom colors for annotations (like in event-colors, needs to be adapted in mne-python)
 - [X] OpenGL (optional, but not on Windws)
-- [ ] Tooltip/Crosshair at cursor which shows time/value under cursor-tip (prerequisite: handle different channel-scales)
-- [ ] OverviewBar (GFP, zscore, etc.)
+- [X] Tooltip/Crosshair at cursor which shows time/value under cursor-tip (prerequisite: handle different channel-scales)
+- [X] OverviewBar (GFP, zscore, etc.)
 - [ ] Dark Mode
 - [ ] Interactive Filter-Settings
