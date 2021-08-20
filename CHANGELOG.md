@@ -1,4 +1,8 @@
 # Week 11
+## Thursday, 2021-08-19
+- preload data in separate thread
+- overview-bar with zscore-mode
+
 ## Wednesday, 2021-08-18
 - finally!! made fake-clicks work in pyqtgraph
 - adapted/refactored test_plot_raw_traces to pass for pyqtgraph
