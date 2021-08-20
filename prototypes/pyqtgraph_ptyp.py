@@ -1,9 +1,22 @@
 import datetime
+import math
 import platform
 from functools import partial
 from itertools import cycle
 
 import numpy as np
+from PyQt5.QtCore import (QEvent, QPointF, Qt, pyqtSignal, QRunnable,
+                          QObject, QThreadPool, QRectF)
+from PyQt5.QtGui import (QFont, QIcon, QPixmap, QTransform,
+                         QMouseEvent, QPainter, QImage)
+from PyQt5.QtTest import QTest
+from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
+                             QDockWidget, QDoubleSpinBox, QFormLayout,
+                             QGridLayout, QHBoxLayout, QInputDialog,
+                             QLabel, QMainWindow, QMessageBox,
+                             QPushButton, QScrollBar, QSizePolicy,
+                             QWidget, QStyleOptionSlider, QStyle,
+                             QApplication, QGraphicsView, QProgressBar)
 from mne.io.pick import _DATA_CH_TYPES_ORDER_DEFAULT
 from mne.utils import logger
 from mne.viz._figure import BrowserBase
@@ -11,21 +24,11 @@ from mne.viz.utils import _get_color_list
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
-                       mkBrush, mkPen, setConfigOption, mkQApp)
-from pyqtgraph.Qt.QtCore import (QEvent, QPointF, Qt, Signal, QRunnable,
-                                 QObject, QThreadPool)
-from pyqtgraph.Qt.QtGui import (QColor, QFont, QIcon, QPixmap, QTransform,
-                                QMouseEvent)
-from pyqtgraph.Qt.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
-                                    QDockWidget, QDoubleSpinBox, QFormLayout,
-                                    QGridLayout, QHBoxLayout, QInputDialog,
-                                    QLabel, QMainWindow, QMessageBox,
-                                    QPushButton, QScrollBar, QSizePolicy,
-                                    QWidget, QStyleOptionSlider, QStyle,
-                                    QApplication, QGraphicsView, QProgressBar)
-from qtpy.QtTest import QTest
+                       mkBrush, mkPen, setConfigOption, mkQApp, mkColor)
+from scipy.stats import zscore
 
 name = 'pyqtgraph'
+
 
 class RawTraceItem(PlotCurveItem):
     """Graphics-Object for single data trace."""
@@ -43,7 +46,7 @@ class RawTraceItem(PlotCurveItem):
 
     def update_bad_color(self):
         if self.isbad:
-            self.setPen('r')
+            self.setPen(self.mne.ch_color_bad)
         else:
             self.setPen(self.color)
 
@@ -195,7 +198,7 @@ class ChannelAxis(AxisItem):
         super().drawPicture(p, axisSpec, tickSpecs, textSpecs)
         for rect, flags, text in textSpecs:
             if text in self.mne.info['bads']:
-                p.setPen(functions.mkPen('r'))
+                p.setPen(functions.mkPen(self.mne.ch_color_bad))
             else:
                 p.setPen(functions.mkPen('k'))
             self.ch_texts[text] = ((rect.left(), rect.left() + rect.width()),
@@ -369,6 +372,111 @@ class ChannelScrollBar(BaseScrollBar):
         event.ignore()
 
 
+class OverviewBar(QLabel):
+
+    def __init__(self, browser):
+        super().__init__()
+        self.browser = browser
+        self.mne = browser.mne
+        self.bg_img = None
+        # Set minimum Size to 1/10 of display size
+        min_h = int(QApplication.desktop().screenGeometry().height() / 10)
+        self.setMinimumSize(1, 1)
+        self.setFixedHeight(min_h)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+
+        # Paint Frame
+        painter = QPainter(self)
+        painter.setPen(mkColor('k'))
+        painter.drawRect(0, 0, self.width() - 1, self.height() - 1)
+
+        # Paint bad-channels
+        for line_idx, ch_idx in enumerate(self.mne.ch_order):
+            if self.mne.ch_names[ch_idx] in self.mne.info['bads']:
+                painter.setPen(mkColor(self.mne.ch_color_bad))
+                start = self.mapFromData(0, line_idx)
+                stop = self.mapFromData(self.mne.inst.times[-1], line_idx)
+                painter.drawLine(start, stop)
+
+        # Paint view range
+        painter.setPen(mkColor('g'))
+        top_left = self.mapFromData(self.mne.t_start, self.mne.ch_start)
+        bottom_right = self.mapFromData(self.mne.t_start
+                                        + self.mne.duration,
+                                        self.mne.ch_start
+                                        + self.mne.n_channels)
+        painter.drawRect(QRectF(top_left, bottom_right))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+
+        self.set_overview()
+
+    def mousePressEvent(self, event):
+        x, y = self.mapToData(event.pos())
+        # Move middle of view range to click position
+        x = x - self.mne.duration / 2
+        y = y - self.mne.n_channels / 2
+        self.mne.plt.setXRange(x, x + self.mne.duration, padding=0)
+        self.mne.plt.setYRange(y, y + self.mne.n_channels + 1, padding=0)
+
+    def _fit_bg_img(self):
+        # Resize Pixmap
+        if self.bg_img:
+            p = QPixmap.fromImage(self.bg_img)
+            p = p.scaled(self.width(), self.height(),
+                         Qt.IgnoreAspectRatio)
+            self.setPixmap(p)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+
+        self._fit_bg_img()
+
+    def set_overview(self):
+        # Add Overview-Pixmap
+        if self.mne.overview_mode == 'channels':
+            channel_rgba = np.empty((len(self.mne.ch_order),
+                                     2, 4))
+            for line_idx, ch_idx in enumerate(self.mne.ch_order):
+                ch_type = self.mne.ch_types[ch_idx]
+                color = mkColor(self.mne.ch_color_dict[ch_type])
+                channel_rgba[line_idx, :] = color.getRgb()
+
+            channel_rgba = np.require(channel_rgba, np.uint8, 'C')
+            self.bg_img = QImage(channel_rgba,
+                                 channel_rgba.shape[1],
+                                 channel_rgba.shape[0],
+                                 QImage.Format_RGBA8888)
+            self.setPixmap(QPixmap.fromImage(self.bg_img))
+
+        elif self.mne.overview_mode == 'zscore' \
+                and hasattr(self.mne, 'zscore_rgba'):
+            self.bg_img = QImage(self.mne.zscore_rgba,
+                                 self.mne.zscore_rgba.shape[1],
+                                 self.mne.zscore_rgba.shape[0],
+                                 QImage.Format_RGBA8888)
+            self.setPixmap(QPixmap.fromImage(self.bg_img))
+
+        self._fit_bg_img()
+
+    def mapFromData(self, x, y):
+        point_x = self.width() * x / self.mne.inst.times[-1]
+        point_y = self.height() * y / len(self.mne.ch_order)
+
+        return QPointF(point_x, point_y)
+
+    def mapToData(self, point):
+        time_idx = int(len(self.mne.inst.times) * point.x() / self.width())
+        x = self.mne.inst.times[time_idx]
+        y = int(len(self.mne.ch_order) * point.y() / self.height())
+
+        return x, y
+
+
 class RawViewBox(ViewBox):
     """PyQtGraph-Wrapper for interaction with the View."""
 
@@ -488,9 +596,9 @@ class HelpDialog(QDialog):
 
 class AnnotRegion(LinearRegionItem):
     """Graphics-Oobject for Annotations."""
-    regionChangeFinished = Signal(object)
-    gotSelected = Signal(object)
-    removeRequested = Signal(object)
+    regionChangeFinished = pyqtSignal(object)
+    gotSelected = pyqtSignal(object)
+    removeRequested = pyqtSignal(object)
 
     def __init__(self, mne, description, values, color, time_decimals):
 
@@ -520,9 +628,9 @@ class AnnotRegion(LinearRegionItem):
         return rgn
 
     def update_color(self, color):
-        color = QColor(color)
-        hover_color = QColor(color)
-        text_color = QColor(color)
+        color = mkColor(color)
+        hover_color = mkColor(color)
+        text_color = mkColor(color)
         color.setAlpha(75)
         hover_color.setAlpha(150)
         text_color.setAlpha(255)
@@ -625,7 +733,7 @@ class AnnotationDock(QDockWidget):
 
     def _add_description_to_cmbx(self, description):
         color_pixmap = QPixmap(25, 25)
-        color = QColor(self.main.get_color(description))
+        color = mkColor(self.main.get_color(description))
         color.setAlpha(75)
         color_pixmap.fill(color)
         color_icon = QIcon(color_pixmap)
@@ -731,7 +839,7 @@ class AnnotationDock(QDockWidget):
             curr_col = self.mne.annot_color_mapping[curr_descr]
         else:
             curr_col = None
-        color = QColorDialog.getColor(QColor(curr_col), self,
+        color = QColorDialog.getColor(mkColor(curr_col), self,
                                       f'Choose color for {curr_descr}!')
         if color.isValid():
             self.mne.annot_color_mapping[curr_descr] = color
@@ -764,6 +872,8 @@ class BrowserView(GraphicsView):
     def __init__(self, plot, **kwargs):
         super().__init__(**kwargs)
         self.setCentralItem(plot)
+        self.setSizePolicy(QSizePolicy.MinimumExpanding,
+                           QSizePolicy.MinimumExpanding)
         self.viewport().setAttribute(Qt.WA_AcceptTouchEvents, True)
 
         self.viewport().grabGesture(Qt.PinchGesture)
@@ -783,9 +893,9 @@ class BrowserView(GraphicsView):
 
 
 class LoadRunnerSignals(QObject):
-    loadProgress = Signal(int)
-    processText = Signal(str)
-    loadingFinished = Signal()
+    loadProgress = pyqtSignal(int)
+    processText = pyqtSignal(str)
+    loadingFinished = pyqtSignal()
 
 
 class LoadRunner(QRunnable):
@@ -801,10 +911,10 @@ class LoadRunner(QRunnable):
         data = None
         times = None
         if not self.mne.is_epochs:
-            chunk_size = len(self.browser.mne.inst) // 100
-            for n in range(100):
+            chunk_size = len(self.browser.mne.inst) // 10
+            for n in range(10):
                 start = n * chunk_size
-                if n == 99:
+                if n == 9:
                     # Get last chunk which may be larger due to rounding above
                     stop = None
                 else:
@@ -820,7 +930,7 @@ class LoadRunner(QRunnable):
                 self.sigs.loadProgress.emit(n + 1)
         else:
             self.browser._load_data()
-            self.sigs.loadProgress.emit(100)
+            self.sigs.loadProgress.emit(10)
 
         picks = self.browser.mne.ch_order
         data = self.browser._process_data(data, start, stop, picks,
@@ -831,6 +941,11 @@ class LoadRunner(QRunnable):
 
         self.browser.mne.global_data = data
         self.browser.mne.global_times = times
+
+        # Calculate Z-Scores
+        if self.mne.overview_mode == 'zscore':
+            self.sigs.processText.emit('Calculating Z-Scores...')
+            self.browser._get_zscore(data)
 
         self.sigs.loadingFinished.emit()
 
@@ -881,6 +996,11 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             If True, preprocessing steps are applied on all data
             and are repeated only if necessary. If False (default),
             preprocessing is applied only on the visible data.
+        overview_mode : str | None
+            Set the mode for the display of an overview over the data. 
+            Currently available is "zscore" to display the zscore for
+            each channel across time. This only works if preload=True.
+            Defaults to "zscore".
         """
         self.pg_kwarg_defaults = dict(duration=20,
                                       n_channels=30,
@@ -896,7 +1016,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                                       tsteps_per_window=100,
                                       check_nan=False,
                                       remove_dc=True,
-                                      preload=True)
+                                      preload=True,
+                                      show_overview_bar=True,
+                                      overview_mode='channels')
         for kw in [k for k in self.pg_kwarg_defaults if k not in kwargs]:
             kwargs[kw] = self.pg_kwarg_defaults[kw]
 
@@ -913,7 +1035,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.statusBar().addWidget(self.mne.load_prog_label)
         self.mne.load_prog_label.hide()
         self.mne.load_progressbar = QProgressBar()
-        self.mne.load_progressbar.setRange(0, 100)
+        self.mne.load_progressbar.setRange(0, 10)
         self.statusBar().addWidget(self.mne.load_progressbar, stretch=1)
         self.mne.load_progressbar.hide()
 
@@ -1001,6 +1123,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         plt.setYRange(0, self.mne.n_channels + 1, padding=0)
         plt.setLimits(xMin=0, xMax=self.mne.xmax,
                       yMin=0, yMax=self.mne.ymax)
+        # Connect Signals from PlotItem
+        plt.sigXRangeChanged.connect(self.xrange_changed)
+        plt.sigYRangeChanged.connect(self.yrange_changed)
         vars(self.mne).update(plt=plt)
 
         # Add traces
@@ -1023,12 +1148,14 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Initialize Scroll-Bars
         ax_hscroll = TimeScrollBar(self.mne)
-        plt.sigXRangeChanged.connect(self.xrange_changed)
         layout.addWidget(ax_hscroll, 1, 0)
 
         ax_vscroll = ChannelScrollBar(self.mne)
-        plt.sigYRangeChanged.connect(self.yrange_changed)
         layout.addWidget(ax_vscroll, 0, 1)
+
+        # OverviewBar
+        overview_bar = OverviewBar(self)
+        layout.addWidget(overview_bar, 2, 0)
 
         widget.setLayout(layout)
         self.setCentralWidget(widget)
@@ -1063,38 +1190,39 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         view.sigSceneMouseMoved.connect(self._mouse_moved)
 
         # Initialize Toolbar
-        self.toolbar = self.addToolBar('Tools')
+        toolbar = self.addToolBar('Tools')
 
         adecr_time = QAction('-Time', parent=self)
         adecr_time.triggered.connect(partial(self.change_duration,
                                              -self.mne.tsteps_per_window / 10))
-        self.toolbar.addAction(adecr_time)
+        toolbar.addAction(adecr_time)
 
         aincr_time = QAction('+Time', parent=self)
         aincr_time.triggered.connect(partial(self.change_duration,
                                              self.mne.tsteps_per_window / 10))
-        self.toolbar.addAction(aincr_time)
+        toolbar.addAction(aincr_time)
 
         adecr_nchan = QAction('-Channels', parent=self)
         adecr_nchan.triggered.connect(partial(self.change_nchan, -10))
-        self.toolbar.addAction(adecr_nchan)
+        toolbar.addAction(adecr_nchan)
 
         aincr_nchan = QAction('+Channels', parent=self)
         aincr_nchan.triggered.connect(partial(self.change_nchan, 10))
-        self.toolbar.addAction(aincr_nchan)
+        toolbar.addAction(aincr_nchan)
 
         atoggle_annot = QAction('Toggle Annotations', parent=self)
         atoggle_annot.triggered.connect(self._toggle_annotation_fig)
-        self.toolbar.addAction(atoggle_annot)
+        toolbar.addAction(atoggle_annot)
 
         ahelp = QAction('Help', parent=self)
         ahelp.triggered.connect(self._toggle_help_fig)
-        self.toolbar.addAction(ahelp)
+        toolbar.addAction(ahelp)
 
         # Add GUI-Elements to MNEBrowserParams-Instance
         vars(self.mne).update(
             plt=plt, view=view, ax_hscroll=ax_hscroll, ax_vscroll=ax_vscroll,
-            fig_annotation=fig_annotation, toolbar=self.toolbar
+            overview_bar=overview_bar, fig_annotation=fig_annotation,
+            toolbar=toolbar
         )
 
     def _get_scale_transform(self):
@@ -1118,6 +1246,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Update Channel-Axis
         self.mne.channel_axis.redraw()
+
+        # Update Overview-Bar
+        self.mne.overview_bar.update()
 
     def add_trace(self, ch_idx):
         trace = RawTraceItem(self.mne, ch_idx)
@@ -1307,6 +1438,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         # Update Time-Bar
         self.mne.ax_hscroll.update_value_external(xrange)
 
+        # Update Overview-Bar
+        self.mne.overview_bar.update()
+
     def yrange_changed(self, _, yrange):
         if not self.mne.butterfly:
             # Update picks and data
@@ -1319,6 +1453,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
             # Update Channel-Bar
             self.mne.ax_vscroll.update_ch_start()
+
+            # Update Overview-Bar
+            self.mne.overview_bar.update()
 
         off_traces = [tr for tr in self.mne.traces
                       if tr.ch_idx not in self.mne.picks]
@@ -1441,6 +1578,10 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.statusBar().showMessage('Loading Finished', 5)
         self.mne.data_preloaded = True
 
+        if self.mne.overview_mode == 'zscore':
+            # Show loaded overview image
+            self.mne.overview_bar.set_overview()
+
     def _preload_in_thread(self):
         self.mne.data_preloaded = False
         # Remove previously loaded data
@@ -1456,6 +1597,18 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         load_runner.sigs.processText.connect(self._show_process)
         load_runner.sigs.loadingFinished.connect(self._preload_finished)
         QThreadPool.globalInstance().start(load_runner)
+
+    def _get_decim(self):
+        if self.mne.decim != 1:
+            self.mne.decim_data = np.ones_like(self.mne.picks)
+            data_picks_mask = np.in1d(self.mne.picks, self.mne.picks_data)
+            self.mne.decim_data[data_picks_mask] = self.mne.decim
+            # decim can vary by channel type,
+            # so compute different `times` vectors
+            self.mne.decim_times = {decim_value: self.mne.times[::decim_value]
+                                                 + self.mne.first_time for
+                                    decim_value in
+                                    set(self.mne.decim_data)}
 
     def _update_data(self):
         if self.mne.data_preloaded:
@@ -1474,8 +1627,44 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             # Invert Data to be displayed from top on inverted Y-Axis.
             self.mne.data *= -1
 
+        # Get decim
+        self._get_decim()
+
         # Apply Downsampling (if enabled)
         self._apply_downsampling()
+
+    def _get_zscore(self, data):
+        # Reshape data to reasonable size for display
+        max_pixel_width = QApplication.desktop().screenGeometry().width()
+        collapse_by = data.shape[1] // max_pixel_width
+        data = data[:, :max_pixel_width * collapse_by]
+        data = data.reshape(data.shape[0], max_pixel_width, collapse_by)
+        data = data.mean(axis=2)
+        z = zscore(data, axis=1)
+
+        zmin = np.min(z, axis=1)
+        zmax = np.max(z, axis=1)
+
+        # Convert into RGBA
+        zrgba = np.empty((*z.shape, 4))
+        for row_idx, row in enumerate(z):
+            for col_idx, value in enumerate(row):
+                if math.isnan(value):
+                    value = 0
+                if value == 0:
+                    rgba = [0, 0, 0, 0]
+                elif value < 0:
+                    alpha = int(255 * value / abs(zmin[row_idx]))
+                    rgba = [0, 0, 255, alpha]
+                else:
+                    alpha = int(255 * value / zmax[row_idx])
+                    rgba = [255, 0, 0, alpha]
+
+                zrgba[row_idx, col_idx] = rgba
+
+        zrgba = np.require(zrgba, np.uint8, 'C')
+
+        self.mne.zscore_rgba = zrgba
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # ANNOTATIONS
@@ -1633,7 +1822,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         self._update_picks()
         self._update_data()
-        self._get_decim()
 
         if self.mne.butterfly:
             # ToDo: Butterfly + Selection
@@ -1666,11 +1854,16 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         else:
             self.showFullScreen()
 
+    def _toggle_overview_bar(self):
+        self.mne.show_overview_bar = not self.mne.show_overview_bar
+        self.mne.overview_bar.setVisible(self.mne.show_overview_bar)
+
     def _toggle_zenmode(self):
         self.mne.scrollbars_visible = not self.mne.scrollbars_visible
         for bar in [self.mne.ax_hscroll, self.mne.ax_vscroll]:
             bar.setVisible(self.mne.scrollbars_visible)
-        self.toolbar.setVisible(self.mne.scrollbars_visible)
+        self.mne.toolbar.setVisible(self.mne.scrollbars_visible)
+        self.mne.overview_bar.setVisible(self.mne.scrollbars_visible)
 
     def _update_trace_offsets(self):
         pass
@@ -1758,22 +1951,10 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             self._toggle_crosshair()
         elif event.key() == Qt.Key_Z:
             self._toggle_zenmode()
-
-    def _get_decim(self):
-        # decim
-        self.mne.decim_data = np.ones_like(self.mne.picks)
-        data_picks_mask = np.in1d(self.mne.picks, self.mne.picks_data)
-        self.mne.decim_data[data_picks_mask] = self.mne.decim
-        # decim can vary by channel type, so compute different `times` vectors
-        self.mne.decim_times = {decim_value:
-                                    self.mne.times[::decim_value]
-                                    + self.mne.first_time
-                                for decim_value in set(self.mne.decim_data)}
+        elif event.key() == Qt.Key_O:
+            self._toggle_overview_bar()
 
     def _draw_traces(self):
-        # Get decim (in BrowserBase)
-        self._get_decim()
-
         # Update data in traces
         for trace in self.mne.traces:
             trace.set_data()
