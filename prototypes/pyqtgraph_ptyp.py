@@ -385,15 +385,13 @@ class OverviewBar(QLabel):
         self.setMinimumSize(1, 1)
         self.setFixedHeight(min_h)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setStyleSheet("QLabel {background-color : white}")
         self.set_overview()
 
     def paintEvent(self, event):
         super().paintEvent(event)
 
-        # Paint Frame
         painter = QPainter(self)
-        painter.setPen(mkColor('k'))
-        painter.drawRect(0, 0, self.width() - 1, self.height() - 1)
 
         # Paint bad-channels
         for line_idx, ch_idx in enumerate(self.mne.ch_order):
@@ -413,6 +411,22 @@ class OverviewBar(QLabel):
                                         self.mne.ch_start
                                         + self.mne.n_channels)
         painter.drawRect(QRectF(top_left, bottom_right))
+
+        # Paint Annotations
+        for annot in self.mne.inst.annotations:
+            plot_onset = _sync_onset(self.mne.inst, annot['onset'])
+            duration = annot['duration']
+            description = annot['description']
+            color_name = self.mne.annotation_segment_colors[description]
+            color = mkColor(color_name)
+            color.setAlpha(200)
+            painter.setPen(color)
+            painter.setBrush(color)
+            top_left = self.mapFromData(plot_onset, 0)
+            bottom_right = self.mapFromData(plot_onset + duration,
+                                            len(self.mne.ch_order))
+
+            painter.drawRect(QRectF(top_left, bottom_right))
 
     def _set_range_from_pos(self, pos):
         x, y = self.mapToData(pos)
@@ -469,15 +483,17 @@ class OverviewBar(QLabel):
         self._fit_bg_img()
 
     def mapFromData(self, x, y):
+        # Include padding from black frame
         point_x = self.width() * x / self.mne.inst.times[-1]
         point_y = self.height() * y / len(self.mne.ch_order)
 
         return QPointF(point_x, point_y)
 
     def mapToData(self, point):
+        # Include padding from black frame
         time_idx = int(len(self.mne.inst.times) * point.x() / self.width())
         x = self.mne.inst.times[time_idx]
-        y = int(len(self.mne.ch_order) * point.y() / self.height())
+        y = len(self.mne.ch_order) * point.y() / self.height()
 
         return x, y
 
@@ -677,7 +693,7 @@ class AnnotRegion(LinearRegionItem):
         vb = self.mne.viewbox
         if vb:
             ymax = vb.viewRange()[1][1]
-            self.label_item.setPos(sum(rgn) / 2, ymax - 0.25)
+            self.label_item.setPos(sum(rgn) / 2, ymax - 0.3)
 
 
 class AnnotationDock(QDockWidget):
@@ -1830,6 +1846,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         idx = self._get_onset_idx(region.getRegion()[0])
         self.mne.inst.annotations.delete(idx)
 
+        # Update Overview-Bar
+        self.mne.overview_bar.update()
+
     def region_selected(self, region):
         old_region = self.mne.selected_region
         # Remove selected-status from old region
@@ -1871,6 +1890,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.add_region(plot_onset, duration, self.mne.current_description,
                         region)
         region.select(True)
+
+        # Update Overview-Bar
+        self.mne.overview_bar.update()
 
     def _change_annot_mode(self):
         if not self.mne.annotation_mode:
