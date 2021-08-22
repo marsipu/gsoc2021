@@ -414,13 +414,19 @@ class OverviewBar(QLabel):
                                         + self.mne.n_channels)
         painter.drawRect(QRectF(top_left, bottom_right))
 
-    def mousePressEvent(self, event):
-        x, y = self.mapToData(event.pos())
+    def _set_range_from_pos(self, pos):
+        x, y = self.mapToData(pos)
         # Move middle of view range to click position
         x = x - self.mne.duration / 2
         y = y - self.mne.n_channels / 2
         self.mne.plt.setXRange(x, x + self.mne.duration, padding=0)
         self.mne.plt.setYRange(y, y + self.mne.n_channels + 1, padding=0)
+
+    def mousePressEvent(self, event):
+        self._set_range_from_pos(event.pos())
+
+    def mouseMoveEvent(self, event):
+        self._set_range_from_pos(event.pos())
 
     def _fit_bg_img(self):
         # Resize Pixmap
