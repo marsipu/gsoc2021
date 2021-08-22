@@ -103,9 +103,13 @@ and the [weekly blogs](https://blogs.python-gsoc.org/en/marsipus-blog/) I wrote.
 #### Run the new backend
 To test the functionality of the new backend, you need to install the following requirments via pip in a python environment:
 ```
-mne
+numpy
+scipy
+matplotlib
+mne (fork the branch from the [WIP-PR](https://github.com/mne-tools/mne-python/pull/9687))
 PyQt5
-pyqtgraph
+qtpy
+git+https://github.com/pyqtgraph/pyqtgraph@master
 pyopengl  # optional, but recommended for higher performance
 ```
 
