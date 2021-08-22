@@ -17,11 +17,11 @@ from PyQt5.QtWidgets import (QAction, QColorDialog, QComboBox, QDialog,
                              QPushButton, QScrollBar, QSizePolicy,
                              QWidget, QStyleOptionSlider, QStyle,
                              QApplication, QGraphicsView, QProgressBar,
-                             QVBoxLayout, QLineEdit)
+                             QVBoxLayout, QLineEdit, QCheckBox, QScrollArea)
+from mne.annotations import _sync_onset
 from mne.io.pick import _DATA_CH_TYPES_ORDER_DEFAULT
 from mne.utils import logger
 from mne.viz._figure import BrowserBase
-from mne.viz.utils import _get_color_list
 from pyqtgraph import (AxisItem, GraphicsView, InfLineLabel, InfiniteLine,
                        LinearRegionItem,
                        PlotCurveItem, PlotItem, TextItem, ViewBox, functions,
@@ -500,19 +500,15 @@ class RawViewBox(ViewBox):
                     self._drag_region = AnnotRegion(self.mne,
                                                     description=description,
                                                     values=(self._drag_start,
-                                                            self._drag_start),
-                                                    color=self.main.get_color(
-                                                        description),
-                                                    time_decimals=
-                                                    self.mne.time_decimals)
+                                                            self._drag_start))
                     self.mne.plt.addItem(self._drag_region)
                     self.mne.plt.addItem(self._drag_region.label_item)
                 elif event.isFinish():
                     drag_stop = self.mapSceneToView(event.scenePos()).x()
                     self._drag_region.setRegion((self._drag_start, drag_stop))
-                    onset = min(self._drag_start, drag_stop)
+                    plot_onset = min(self._drag_start, drag_stop)
                     duration = abs(self._drag_start - drag_stop)
-                    self.main.add_annotation(onset, duration,
+                    self.main.add_annotation(plot_onset, duration,
                                              region=self._drag_region)
                 else:
                     self._drag_region.setRegion((self._drag_start,
@@ -599,7 +595,7 @@ class AnnotRegion(LinearRegionItem):
     gotSelected = pyqtSignal(object)
     removeRequested = pyqtSignal(object)
 
-    def __init__(self, mne, description, values, color, time_decimals):
+    def __init__(self, mne, description, values):
 
         super().__init__(values=values, orientation='vertical',
                          movable=True, swapMode='sort')
@@ -607,7 +603,6 @@ class AnnotRegion(LinearRegionItem):
         self.sigRegionChangeFinished.connect(self._region_changed)
         self.mne = mne
         self.description = description
-        self.mne.time_decimals = time_decimals
         self.old_onset = values[0]
         self.selected = False
 
@@ -615,18 +610,14 @@ class AnnotRegion(LinearRegionItem):
         self.label_item.setFont(QFont('AnyStyle', 10, QFont.Bold))
         self.sigRegionChanged.connect(self.change_label_pos)
 
-        self.update_color(color)
+        self.update_color()
 
     def _region_changed(self):
         self.regionChangeFinished.emit(self)
         self.old_onset = self.getRegion()[0]
 
-    def getRegion(self):
-        rgn = tuple([round(r, self.mne.time_decimals)
-                     for r in super().getRegion()])
-        return rgn
-
-    def update_color(self, color):
+    def update_color(self):
+        color = self.mne.annotation_segment_colors[self.description]
         color = mkColor(color)
         hover_color = mkColor(color)
         text_color = mkColor(color)
@@ -718,15 +709,18 @@ class AnnotationDock(QDockWidget):
         color_bt.clicked.connect(self.set_color)
         layout.addWidget(color_bt)
 
+        # Determine reasonable time decimals from sampling frequency.
+        time_decimals = int(np.ceil(np.log10(self.mne.info['sfreq'])))
+
         layout.addWidget(QLabel('Start:'))
         self.start_bx = QDoubleSpinBox()
-        self.start_bx.setDecimals(self.mne.time_decimals)
+        self.start_bx.setDecimals(time_decimals)
         self.start_bx.editingFinished.connect(self.start_changed)
         layout.addWidget(self.start_bx)
 
         layout.addWidget(QLabel('Stop:'))
         self.stop_bx = QDoubleSpinBox()
-        self.stop_bx.setDecimals(self.mne.time_decimals)
+        self.stop_bx.setDecimals(time_decimals)
         self.stop_bx.editingFinished.connect(self.stop_changed)
         layout.addWidget(self.stop_bx)
 
@@ -735,7 +729,7 @@ class AnnotationDock(QDockWidget):
 
     def _add_description_to_cmbx(self, description):
         color_pixmap = QPixmap(25, 25)
-        color = mkColor(self.main.get_color(description))
+        color = mkColor(self.mne.annotation_segment_colors[description])
         color.setAlpha(75)
         color_pixmap.fill(color)
         color_icon = QIcon(color_pixmap)
@@ -746,56 +740,64 @@ class AnnotationDock(QDockWidget):
                                                    'Set new description!',
                                                    'New description: ')
         if ok and new_description \
-                and new_description not in self.mne.descriptions:
-            self.mne.descriptions.append(new_description)
+                and new_description not in self.mne.new_annotation_labels:
+            self.mne.new_annotation_labels.append(new_description)
+            self.mne.visible_annotations[new_description] = True
+            self.main._setup_annotation_colors()
             self._add_description_to_cmbx(new_description)
         self.mne.current_description = self.description_cmbx.currentText()
 
     def edit_description(self):
-        curr_descr = self.description_cmbx.currentText()
+        curr_des = self.description_cmbx.currentText()
 
         # This is a inline approach of creating the dialog and thus preventing
         # an additional class.
         def get_edited_values():
-            ch_descr = input_w.text()
+            new_des = input_w.text()
             if mode_cmbx:
                 mode = mode_cmbx.currentText()
             else:
                 mode = 'group'
-            if ch_descr:
+            if new_des:
                 if mode == 'group' or self.mne.selected_region is None:
                     edit_regions = [r for r in self.mne.regions
-                                    if r.description == curr_descr]
+                                    if r.description == curr_des]
                     for ed_region in edit_regions:
                         idx = self.main._get_onset_idx(
                             ed_region.getRegion()[0])
-                        self.mne.annotations.description[idx] = ch_descr
-                        ed_region.update_description(ch_descr)
-                    # Do it like this to temporarily keep descriptions
-                    # without an annotation in self.mne.descriptions.
-                    self.mne.descriptions = [ch_descr if i == curr_descr else i
-                                             for i in self.mne.descriptions]
-                    self.mne.annot_color_mapping[ch_descr] = \
-                        self.mne.annot_color_mapping.pop(curr_descr)
+                        self.mne.inst.annotations.description[idx] = new_des
+                        ed_region.update_description(new_des)
+                    self.mne.new_annotation_labels.remove(curr_des)
+                    self.mne.new_annotation_labels = \
+                        self.main._get_annotation_labels()
+                    self.mne.visible_annotations[new_des] = \
+                        self.mne.visible_annotations.pop(curr_des)
+                    self.mne.annotation_segment_colors[new_des] = \
+                        self.mne.annotation_segment_colors.pop(curr_des)
                 else:
                     idx = self.main._get_onset_idx(
                         self.mne.selected_region.getRegion()[0])
-                    self.mne.annotations.description[idx] = ch_descr
-                    self.mne.selected_region.update_description(ch_descr)
-                    self.mne.descriptions.append(ch_descr)
-                    self.mne.annot_color_mapping[ch_descr] = \
-                        self.mne.annot_color_mapping[curr_descr]
-                    if curr_descr not in \
-                            self.mne.annotations.description:
-                        self.mne.descriptions.remove(curr_descr)
-                        self.mne.annot_color_mapping.pop(curr_descr)
-                self.mne.current_description = ch_descr
+                    self.mne.inst.annotations.description[idx] = new_des
+                    self.mne.selected_region.update_description(new_des)
+                    if new_des not in self.mne.new_annotation_labels:
+                        self.mne.new_annotation_labels.append(new_des)
+                    self.mne.visible_annotations[new_des] = \
+                        self.mne.visible_annotations[curr_des]
+                    self.mne.annotation_segment_colors[new_des] = \
+                        self.mne.annotation_segment_colors[curr_des]
+                    if curr_des not in \
+                            self.mne.inst.annotations.description:
+                        self.mne.new_annotation_labels.remove(curr_des)
+                        self.mne.visible_annotations.pop(curr_des)
+                        self.mne.annotation_segment_colors.pop(curr_des)
+                self.mne.current_description = new_des
+                self.main._setup_annotation_colors()
                 self.update_description_cmbx()
-                self.main.update_colors()
+                self.main.update_regions_colors()
 
             edit_dlg.close()
 
-        if len(self.mne.annotations.description) > 0:
+        if len(self.mne.inst.annotations.description) > 0:
             edit_dlg = QDialog()
             layout = QVBoxLayout()
             if self.mne.selected_region:
@@ -805,7 +807,7 @@ class AnnotationDock(QDockWidget):
                 layout.addWidget(mode_cmbx)
             else:
                 mode_cmbx = None
-            layout.addWidget(QLabel(f'Change "{curr_descr}" to:'))
+            layout.addWidget(QLabel(f'Change "{curr_des}" to:'))
             input_w = QLineEdit()
             layout.addWidget(input_w)
             bt_layout = QHBoxLayout()
@@ -843,18 +845,50 @@ class AnnotationDock(QDockWidget):
                                   if r.description == rm_description]:
                     rm_region.remove()
 
-        # Remove from descriptions
-        self.mne.descriptions.remove(rm_description)
-        self.update_description_cmbx()
+                # Remove from descriptions
+                self.mne.new_annotation_labels.remove(rm_description)
+                self.update_description_cmbx()
 
-        # Remove from color-mapping
-        if rm_description in self.mne.annot_color_mapping:
-            self.mne.annot_color_mapping.pop(rm_description)
+                # Remove from visible annotations
+                self.mne.visible_annotations.pop(rm_description)
 
-        # Set first description in Combo-Box to current description
-        if len(self.description_cmbx.count()) > 0:
-            self.description_cmbx.setCurrentIndex(0)
-            self.mne.current_description = self.description_cmbx.currentText()
+                # Remove from color-mapping
+                if rm_description in self.mne.annotation_segment_colors:
+                    self.mne.annotation_segment_colors.pop(rm_description)
+
+                # Set first description in Combo-Box to current description
+                if len(self.description_cmbx.count()) > 0:
+                    self.description_cmbx.setCurrentIndex(0)
+                    self.mne.current_description =\
+                        self.description_cmbx.currentText()
+
+    def select_annotations(self):
+        def _set_visible_region(state, description):
+            self.mne.visible_annotations[description] = bool(state)
+
+        select_dlg = QDialog(self)
+        layout = QVBoxLayout()
+        layout.addWidget(QLabel('Select visible labels:'))
+
+        # Add descriptions to scroll-area to be scalable.
+        scroll_area = QScrollArea()
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout()
+
+        for des in self.mne.visible_annotations:
+            chkbx = QCheckBox(des)
+            chkbx.setChecked(self.mne.visible_annotations[des])
+            chkbx.stateChanged.connect(partial(_set_visible_region,
+                                               description=des))
+            scroll_layout.addWidget(chkbx)
+
+        scroll_widget.setLayout(scroll_layout)
+        scroll_area.setWidget(scroll_widget)
+
+        select_dlg.setLayout(layout)
+        select_dlg.exec()
+
+        self.main.update_regions_visible()
 
     def description_changed(self, descr_idx):
         new_descr = self.description_cmbx.itemText(descr_idx)
@@ -887,16 +921,16 @@ class AnnotationDock(QDockWidget):
 
     def set_color(self):
         curr_descr = self.description_cmbx.currentText()
-        if curr_descr in self.mne.annot_color_mapping:
-            curr_col = self.mne.annot_color_mapping[curr_descr]
+        if curr_descr in self.mne.annotation_segment_colors:
+            curr_col = self.mne.annotation_segment_colors[curr_descr]
         else:
             curr_col = None
         color = QColorDialog.getColor(mkColor(curr_col), self,
                                       f'Choose color for {curr_descr}!')
         if color.isValid():
-            self.mne.annot_color_mapping[curr_descr] = color
+            self.mne.annotation_segment_colors[curr_descr] = color
             self.update_description_cmbx()
-            self.main.update_colors()
+            self.main.update_regions_colors()
 
     def update_values(self, region):
         rgn = region.getRegion()
@@ -906,7 +940,8 @@ class AnnotationDock(QDockWidget):
 
     def update_description_cmbx(self):
         self.description_cmbx.clear()
-        for description in self.mne.descriptions:
+        descriptions = self.main._get_annotation_labels()
+        for description in descriptions:
             self._add_description_to_cmbx(description)
         self.description_cmbx.setCurrentText(self.mne.current_description)
 
@@ -1035,8 +1070,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             Enable Antialiasing.
         use_opengl : bool
             Use OpenGL.
-        show_annotations : bool
-            Wether to show annotations (may impact performance in benchmarks).
         enable_ds_cache : bool
             If True cache the downsampled arrays inside RawCurveItems
             per downsampling-factor.
@@ -1064,7 +1097,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
                                       ds_chunk_size=None,
                                       antialiasing=False,
                                       use_opengl=True,
-                                      show_annotations=True,
                                       enable_ds_cache=True,
                                       tsteps_per_window=100,
                                       check_nan=False,
@@ -1094,26 +1126,20 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         self.mne.traces = list()
         self.mne.scale_factor = 1
-        self.mne.time_decimals = int(np.ceil(
-            np.log10(self.mne.info['sfreq'])))
         self.mne.butterfly_type_order = [tp for tp in
                                          _DATA_CH_TYPES_ORDER_DEFAULT
                                          if tp in self.mne.ch_types]
 
         # Initialize annotations (ToDo: Adjust to MPL)
         self.mne.annotation_mode = False
-        self.mne.annotations = self.mne.inst.annotations
-        self.mne.descriptions = list(set(
-            self.mne.inst.annotations.description))
-        if len(self.mne.descriptions) > 0:
-            self.mne.current_description = self.mne.descriptions[0]
+        self.mne.new_annotation_labels = self._get_annotation_labels()
+        if len(self.mne.new_annotation_labels) > 0:
+            self.mne.current_description = self.mne.new_annotation_labels[0]
         else:
             self.mne.current_description = None
-        colors, self.mne.red = _get_color_list(annotations=True)
-        self.mne.color_cycle = cycle(colors)
-        self.mne.annot_color_mapping = dict()
-        self.mne.selected_region = None
+        self._setup_annotation_colors()
         self.mne.regions = list()
+        self.mne.selected_region = None
 
         setConfigOption('antialias', self.mne.antialiasing)
 
@@ -1219,17 +1245,15 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         fig_annotation.setVisible(False)
         vars(self.mne).update(fig_annotation=fig_annotation)
 
-        # Initialize other widgets associated to annotations.
-        self.change_annot_mode()
+        # Add annotations as regions
+        for annot in self.mne.inst.annotations:
+            plot_onset = _sync_onset(self.mne.inst, annot['onset'])
+            duration = annot['duration']
+            description = annot['description']
+            self.add_region(plot_onset, duration, description)
 
-        if self.mne.show_annotations:
-            # Add all annotation-regions to a list and plot the visible ones.
-            for annot in self.mne.annotations:
-                onset = round(annot['onset'] - self.mne.first_time,
-                              self.mne.time_decimals)
-                duration = round(annot['duration'], self.mne.time_decimals)
-                description = annot['description']
-                self.add_region(onset, duration, description)
+        # Initialize annotations
+        self._change_annot_mode()
 
         # Initialize VLine
         self.mne.vline = None
@@ -1474,7 +1498,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         # Update data
         self.mne.t_start = xrange[0]
         self.mne.duration = xrange[1] - xrange[0]
-        self._redraw(update_data=True, annotations=self.mne.show_annotations)
+        self._redraw(update_data=True)
 
         # Update Time-Bar
         self.mne.ax_hscroll.update_value_external(xrange)
@@ -1710,30 +1734,22 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # ANNOTATIONS
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-    def get_color(self, description):
-        # As in matplotlib-backend
-        if any([b in description for b in ['bad', 'BAD', 'Bad']]):
-            color = self.mne.red
-        elif description in self.mne.annot_color_mapping:
-            color = self.mne.annot_color_mapping[description]
-        else:
-            color = next(self.mne.color_cycle)
-        self.mne.annot_color_mapping[description] = color
-        return color
+    def update_regions_visible(self):
+        for region in self.mne.regions:
+            region.setVisible(self.mne.visible_annotations[region.description])
 
-    def update_colors(self):
-        update_regions = [r for r in self.mne.regions
-                          if r.description == self.mne.current_description]
-        for u_region in update_regions:
-            u_region.update_color(self.get_color(self.mne.current_description))
+    def update_regions_colors(self):
+        """Update regions with current_description."""
+        for region in self.mne.regions:
+            region.update_color()
 
-    def add_region(self, onset, duration, description, region=None):
-        color = self.get_color(description)
+    def add_region(self, plot_onset, duration, description, region=None):
         if not region:
             region = AnnotRegion(self.mne, description=description,
-                                 values=(onset, onset + duration),
-                                 color=color,
-                                 time_decimals=self.mne.time_decimals)
+                                 values=(plot_onset, plot_onset + duration))
+            self.mne.plt.addItem(region)
+            # Found no better way yet to initialize the region-labels
+            self.mne.plt.addItem(region.label_item)
         region.regionChangeFinished.connect(self.region_changed)
         region.gotSelected.connect(self.region_selected)
         region.removeRequested.connect(self.remove_region)
@@ -1741,13 +1757,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
             region.change_label_pos)
         self.mne.regions.append(region)
 
-        xrange = self.mne.viewbox.viewRange()[0]
-        if xrange[0] < onset < xrange[1] \
-                and region not in self.mne.plt.items:
-            self.mne.plt.addItem(region)
-            # Found no better way yet to initialize the region-labels
-            self.mne.plt.addItem(region.label_item)
-            region.change_label_pos()
+        region.change_label_pos()
 
     def remove_region(self, region):
         # Remove from shown regions
@@ -1766,7 +1776,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         # Remove from annotations
         idx = self._get_onset_idx(region.getRegion()[0])
-        self.mne.annotations.delete(idx)
+        self.mne.inst.annotations.delete(idx)
 
     def region_selected(self, region):
         old_region = self.mne.selected_region
@@ -1778,10 +1788,9 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.current_description = region.description
         self.mne.fig_annotation.update_values(region)
 
-    def _get_onset_idx(self, onset):
-        idx = np.where(
-            np.around(self.mne.annotations.onset - self.mne.first_time,
-                      self.mne.time_decimals) == onset)
+    def _get_onset_idx(self, plot_onset):
+        onset = _sync_onset(self.mne.inst, plot_onset, inverse=True)
+        idx = np.where(self.mne.inst.annotations.onset == onset)
         return idx
 
     def region_changed(self, region):
@@ -1793,64 +1802,44 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.fig_annotation.update_values(region)
 
         # Change annotations
-        self.mne.annotations.onset[idx] = round(rgn[0] + self.mne.first_time,
-                                                self.mne.time_decimals)
-        self.mne.annotations.duration[idx] = rgn[1] - rgn[0]
+        self.mne.inst.annotations.onset[idx] = _sync_onset(self.mne.inst,
+                                                           rgn[0], inverse=True)
+        self.mne.inst.annotations.duration[idx] = rgn[1] - rgn[0]
 
     def _draw_annotations(self):
-        xmin, xmax = self.mne.plt.viewRange()[0]
-        inside_onsets = self.mne.annotations.onset[
-            np.where(
-                (self.mne.annotations.onset + self.mne.annotations.duration
-                 >= xmin + self.mne.first_time) &
-                (self.mne.annotations.onset < xmax + self.mne.first_time))[0]]
-        inside_onsets = [
-            round(io - self.mne.first_time, self.mne.time_decimals)
-            for io in inside_onsets]
-        rm_regions = [r for r in self.mne.regions
-                      if r.getRegion()[0] not in inside_onsets
-                      and r in self.mne.plt.items]
-        for rm_region in rm_regions:
-            self.mne.plt.removeItem(rm_region)
-            self.mne.plt.removeItem(rm_region.label_item)
+        # All regions are constantly added to the Scene and handled by Qt
+        # which is faster than handling adding/removing in Python.
+        pass
 
-        add_regions = [r for r in self.mne.regions
-                       if r.getRegion()[0] in inside_onsets
-                       and r not in self.mne.plt.items]
-        for add_region in add_regions:
-            self.mne.plt.addItem(add_region)
-            self.mne.plt.addItem(add_region.label_item)
-            add_region.change_label_pos()
-
-    def add_annotation(self, onset, duration, region):
-        """Add annotation to Annotations (onset is here the onset
-        in the plot which is then adjusted with first_time)"""
-        self.mne.annotations.append(onset + self.mne.first_time, duration,
-                                    self.mne.current_description)
-        self.add_region(onset, duration, self.mne.current_description, region)
+    def add_annotation(self, plot_onset, duration, region=None):
+        """Add annotation to Annotations."""
+        onset = _sync_onset(self.mne.inst, plot_onset, inverse=True)
+        self.mne.inst.annotations.append(onset, duration,
+                                         self.mne.current_description)
+        self.add_region(plot_onset, duration, self.mne.current_description,
+                        region)
         region.select(True)
 
-    def change_annot_mode(self):
-        if self.mne.show_annotations:
-            if not self.mne.annotation_mode:
-                # Reset Widgets in Annotation-Figure
-                self.mne.fig_annotation.reset()
+    def _change_annot_mode(self):
+        if not self.mne.annotation_mode:
+            # Reset Widgets in Annotation-Figure
+            self.mne.fig_annotation.reset()
 
-            # Show Annotation-Dock if activated.
-            self.mne.fig_annotation.setVisible(self.mne.annotation_mode)
+        # Show Annotation-Dock if activated.
+        self.mne.fig_annotation.setVisible(self.mne.annotation_mode)
 
-            # Make Regions movable if activated.
-            for region in self.mne.regions:
-                region.setMovable(self.mne.annotation_mode)
+        # Make Regions movable if activated.
+        for region in self.mne.regions:
+            region.setMovable(self.mne.annotation_mode)
 
-            # Remove selection-rectangle.
-            if not self.mne.annotation_mode and self.mne.selected_region:
-                self.mne.selected_region.select(False)
-                self.mne.selected_region = None
+        # Remove selection-rectangle.
+        if not self.mne.annotation_mode and self.mne.selected_region:
+            self.mne.selected_region.select(False)
+            self.mne.selected_region = None
 
     def _toggle_annotation_fig(self):
         self.mne.annotation_mode = not self.mne.annotation_mode
-        self.change_annot_mode()
+        self._change_annot_mode()
 
     def _toggle_help_fig(self):
         if self.mne.fig_help is None:
@@ -1913,9 +1902,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         pass
 
     def _create_selection_fig(self):
-        pass
-
-    def _setup_annotation_colors(self):
         pass
 
     def _toggle_proj_fig(self):
@@ -2003,9 +1989,6 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         for trace in self.mne.traces:
             trace.set_data()
 
-    def _redraw(self, update_data=True, annotations=False):
-        super()._redraw(update_data, annotations)
-
     def _close_event(self, fig=None):
         fig = fig or self
         fig.close()
@@ -2052,7 +2035,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
 
         elif xform == 'data':
             # For Qt, the equivalent of matplotlibs transData
-            # would be a transformation to the coordinate system of the ViewBox.
+            # would be a transformation to
+            # the coordinate system of the ViewBox.
             # This only works on the View (self.mne.view)
             fig = self.mne.view
             point = self.mne.viewbox.mapViewToScene(QPointF(*point))
@@ -2120,7 +2104,7 @@ for char in 'abcdefghijklmnopyqrstuvwxyz0123456789':
 
 
 def _get_n_figs():
-    return len(QApplication.allWindows())
+    return len(QApplication.topLevelWindows())
 
 
 def _close_all():

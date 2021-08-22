@@ -1,4 +1,7 @@
 # Week 11
+## Friday, 2021-08-20
+- fixed bugs (overview-bar, mouseDrag, annotations)
+
 ## Thursday, 2021-08-19
 - preload data in separate thread
 - overview-bar with zscore-mode

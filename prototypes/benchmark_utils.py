@@ -753,4 +753,5 @@ class BenchmarkWindow(QMainWindow):
 
     def closeEvent(self, event):
         event.accept()
+        self.backend._close(event)
         self.save_inst(None)
