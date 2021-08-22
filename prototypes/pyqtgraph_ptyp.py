@@ -380,6 +380,9 @@ class OverviewBar(QLabel):
         self.browser = browser
         self.mne = browser.mne
         self.bg_img = None
+        # Update bads and annotations only on change for increased performance
+        self._bads_changed = True
+        self._annots_changed = True
         # Set minimum Size to 1/10 of display size
         min_h = int(QApplication.desktop().screenGeometry().height() / 10)
         self.setMinimumSize(1, 1)
@@ -394,12 +397,31 @@ class OverviewBar(QLabel):
         painter = QPainter(self)
 
         # Paint bad-channels
-        for line_idx, ch_idx in enumerate(self.mne.ch_order):
-            if self.mne.ch_names[ch_idx] in self.mne.info['bads']:
-                painter.setPen(mkColor(self.mne.ch_color_bad))
-                start = self.mapFromData(0, line_idx)
-                stop = self.mapFromData(self.mne.inst.times[-1], line_idx)
-                painter.drawLine(start, stop)
+        if self._bads_changed:
+            for line_idx, ch_idx in enumerate(self.mne.ch_order):
+                if self.mne.ch_names[ch_idx] in self.mne.info['bads']:
+                    painter.setPen(mkColor(self.mne.ch_color_bad))
+                    start = self.mapFromData(0, line_idx)
+                    stop = self.mapFromData(self.mne.inst.times[-1], line_idx)
+                    painter.drawLine(start, stop)
+
+        # Paint Annotations
+        if self._annots_changed:
+            for annot in self.mne.inst.annotations:
+                des = annot['description']
+                if self.mne.visible_annotations[des]:
+                    plot_onset = _sync_onset(self.mne.inst, annot['onset'])
+                    duration = annot['duration']
+                    color_name = self.mne.annotation_segment_colors[des]
+                    color = mkColor(color_name)
+                    color.setAlpha(200)
+                    painter.setPen(color)
+                    painter.setBrush(color)
+                    top_left = self.mapFromData(plot_onset, 0)
+                    bottom_right = self.mapFromData(plot_onset + duration,
+                                                    len(self.mne.ch_order))
+
+                    painter.drawRect(QRectF(top_left, bottom_right))
 
         # Paint view range
         view_pen = QPen(mkColor('g'))
@@ -412,29 +434,24 @@ class OverviewBar(QLabel):
                                         + self.mne.n_channels)
         painter.drawRect(QRectF(top_left, bottom_right))
 
-        # Paint Annotations
-        for annot in self.mne.inst.annotations:
-            plot_onset = _sync_onset(self.mne.inst, annot['onset'])
-            duration = annot['duration']
-            description = annot['description']
-            color_name = self.mne.annotation_segment_colors[description]
-            color = mkColor(color_name)
-            color.setAlpha(200)
-            painter.setPen(color)
-            painter.setBrush(color)
-            top_left = self.mapFromData(plot_onset, 0)
-            bottom_right = self.mapFromData(plot_onset + duration,
-                                            len(self.mne.ch_order))
+    def update_bad_chs(self):
+        self._bads_changed = True
+        self.update()
+        self._bads_changed = False
 
-            painter.drawRect(QRectF(top_left, bottom_right))
+    def update_annotations(self):
+        self._annots_changed = True
+        self.update()
+        self._annots_changed = False
 
     def _set_range_from_pos(self, pos):
         x, y = self.mapToData(pos)
-        # Move middle of view range to click position
-        x = x - self.mne.duration / 2
-        y = y - self.mne.n_channels / 2
-        self.mne.plt.setXRange(x, x + self.mne.duration, padding=0)
-        self.mne.plt.setYRange(y, y + self.mne.n_channels + 1, padding=0)
+        if x and y:
+            # Move middle of view range to click position
+            x = x - self.mne.duration / 2
+            y = y - self.mne.n_channels / 2
+            self.mne.plt.setXRange(x, x + self.mne.duration, padding=0)
+            self.mne.plt.setYRange(y, y + self.mne.n_channels + 1, padding=0)
 
     def mousePressEvent(self, event):
         self._set_range_from_pos(event.pos())
@@ -492,8 +509,11 @@ class OverviewBar(QLabel):
     def mapToData(self, point):
         # Include padding from black frame
         time_idx = int(len(self.mne.inst.times) * point.x() / self.width())
-        x = self.mne.inst.times[time_idx]
-        y = len(self.mne.ch_order) * point.y() / self.height()
+        if time_idx < len(self.mne.inst.times):
+            x = self.mne.inst.times[time_idx]
+            y = len(self.mne.ch_order) * point.y() / self.height()
+        else:
+            x, y = None, None
 
         return x, y
 
@@ -1391,7 +1411,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.channel_axis.redraw()
 
         # Update Overview-Bar
-        self.mne.overview_bar.update()
+        self.mne.overview_bar.update_bad_chs()
 
     def add_trace(self, ch_idx):
         trace = RawTraceItem(self.mne, ch_idx)
@@ -1847,7 +1867,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.mne.inst.annotations.delete(idx)
 
         # Update Overview-Bar
-        self.mne.overview_bar.update()
+        self.mne.overview_bar.update_annotations()
 
     def region_selected(self, region):
         old_region = self.mne.selected_region
@@ -1892,7 +1912,7 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         region.select(True)
 
         # Update Overview-Bar
-        self.mne.overview_bar.update()
+        self.mne.overview_bar.update_annotations()
 
     def _change_annot_mode(self):
         if not self.mne.annotation_mode:
