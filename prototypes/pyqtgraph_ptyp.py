@@ -2,7 +2,6 @@ import datetime
 import math
 import platform
 from functools import partial
-from itertools import cycle
 
 import numpy as np
 from PyQt5.QtCore import (QEvent, QPointF, Qt, pyqtSignal, QRunnable,

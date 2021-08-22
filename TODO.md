@@ -36,8 +36,8 @@
 - [ ] Group channels (group_by-parameter)
 - [ ] Selection-Figure
 
-## Application Configuration
-- [X] Entry point for application (solved with python -m [...])
+## Improvements
+- [ ] Crosshair without horizontal line but dot
 
 ## Performance
 - [X] Downsampling-test (with artificial peak-file, no omission of peaks)
