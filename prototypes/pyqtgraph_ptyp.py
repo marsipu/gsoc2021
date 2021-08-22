@@ -634,6 +634,10 @@ class AnnotRegion(LinearRegionItem):
         self.label_item.setText(description)
         self.label_item.update()
 
+    def update_visible(self, visible):
+        self.setVisible(visible)
+        self.label_item.setVisible(visible)
+
     def paint(self, p, *args):
         super().paint(p, *args)
 
@@ -708,7 +712,11 @@ class AnnotationDock(QDockWidget):
         color_bt = QPushButton('Edit Color')
         color_bt.clicked.connect(self.set_color)
         layout.addWidget(color_bt)
-
+        
+        select_bt = QPushButton('Select Visible')
+        select_bt.clicked.connect(self.select_annotations)
+        layout.addWidget(select_bt)
+        
         # Determine reasonable time decimals from sampling frequency.
         time_decimals = int(np.ceil(np.log10(self.mne.info['sfreq'])))
 
@@ -866,7 +874,16 @@ class AnnotationDock(QDockWidget):
         def _set_visible_region(state, description):
             self.mne.visible_annotations[description] = bool(state)
 
+        def _select_all():
+            for chkbx in chkbxs:
+                chkbx.setChecked(True)
+
+        def _clear_all():
+            for chkbx in chkbxs:
+                chkbx.setChecked(False)
+
         select_dlg = QDialog(self)
+        chkbxs = list()
         layout = QVBoxLayout()
         layout.addWidget(QLabel('Select visible labels:'))
 
@@ -880,10 +897,28 @@ class AnnotationDock(QDockWidget):
             chkbx.setChecked(self.mne.visible_annotations[des])
             chkbx.stateChanged.connect(partial(_set_visible_region,
                                                description=des))
+            chkbxs.append(chkbx)
             scroll_layout.addWidget(chkbx)
 
         scroll_widget.setLayout(scroll_layout)
         scroll_area.setWidget(scroll_widget)
+        layout.addWidget(scroll_area)
+
+        bt_layout = QGridLayout()
+
+        all_bt = QPushButton('All')
+        all_bt.clicked.connect(_select_all)
+        bt_layout.addWidget(all_bt, 0, 0)
+
+        clear_bt = QPushButton('Clear')
+        clear_bt.clicked.connect(_clear_all)
+        bt_layout.addWidget(clear_bt, 0, 1)
+
+        ok_bt = QPushButton('Ok')
+        ok_bt.clicked.connect(select_dlg.close)
+        bt_layout.addWidget(ok_bt, 1, 0, 1, 2)
+
+        layout.addLayout(bt_layout)
 
         select_dlg.setLayout(layout)
         select_dlg.exec()
@@ -995,14 +1030,19 @@ class LoadRunner(QRunnable):
 
     def run(self):
         """Load and process data in a separate QThread."""
-        # Split data loading into 100 chunks to show user progress.
+        # Split data loading into 10 chunks to show user progress.
+        # Testing showed that e.g. n_chunks=100 extends loading time
+        # (at least for the sample dataset)
+        # because of the frequent gui-update-calls.
+        # Thus n_chunks = 10 should suffice.
         data = None
         times = None
+        n_chunks = 10
         if not self.mne.is_epochs:
-            chunk_size = len(self.browser.mne.inst) // 10
-            for n in range(10):
+            chunk_size = len(self.browser.mne.inst) // n_chunks
+            for n in range(n_chunks):
                 start = n * chunk_size
-                if n == 9:
+                if n == n_chunks - 1:
                     # Get last chunk which may be larger due to rounding above
                     stop = None
                 else:
@@ -1018,11 +1058,15 @@ class LoadRunner(QRunnable):
                 self.sigs.loadProgress.emit(n + 1)
         else:
             self.browser._load_data()
-            self.sigs.loadProgress.emit(10)
+            self.sigs.loadProgress.emit(n_chunks)
 
         picks = self.browser.mne.ch_order
+        # Deactive remove dc because it will be removed for visible range
+        stashed_remove_dc = self.mne.remove_dc
+        self.mne.remove_dc = False
         data = self.browser._process_data(data, start, stop, picks,
                                           self.sigs)
+        self.mne.remove_dc = stashed_remove_dc
 
         # Invert Data to be displayed from top on inverted Y-Axis.
         data *= -1
@@ -1120,7 +1164,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
         self.statusBar().addWidget(self.mne.load_prog_label)
         self.mne.load_prog_label.hide()
         self.mne.load_progressbar = QProgressBar()
-        self.mne.load_progressbar.setRange(0, 10)
+        # Set to n_chunks of LoadRunner
+        self.mne.load_progressbar.setMaximum(10)
         self.statusBar().addWidget(self.mne.load_progressbar, stretch=1)
         self.mne.load_progressbar.hide()
 
@@ -1736,7 +1781,8 @@ class PyQtGraphPtyp(BrowserBase, QMainWindow, metaclass=_PGMetaClass):
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     def update_regions_visible(self):
         for region in self.mne.regions:
-            region.setVisible(self.mne.visible_annotations[region.description])
+            region.update_visible(
+                self.mne.visible_annotations[region.description])
 
     def update_regions_colors(self):
         """Update regions with current_description."""

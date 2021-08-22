@@ -63,5 +63,6 @@
 - [X] OpenGL (optional, but not on Windws)
 - [X] Tooltip/Crosshair at cursor which shows time/value under cursor-tip (prerequisite: handle different channel-scales)
 - [X] OverviewBar (GFP, zscore, etc.)
-- [ ] Dark Mode
+- [ ] Dark Mode (preferably with parameter accepting dict for colors to be adjusted by user)
 - [ ] Interactive Filter-Settings
+- [ ]
