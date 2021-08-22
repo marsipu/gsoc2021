@@ -99,3 +99,34 @@ I listed the ToDo's left together with ideas for feature-expansion in [this issu
 
 To follow my development process in retrospective, you can look at the daily [changelog](CHANGELOG.md)
 and the [weekly blogs](https://blogs.python-gsoc.org/en/marsipus-blog/) I wrote.
+
+#### Run the new backend
+To test the functionality of the new backend, you need to install the following requirments via pip in a python environment:
+```
+mne
+PyQt5
+pyqtgraph
+pyopengl  # optional, but recommended for higher performance
+```
+
+And to run, you can run the following example code:
+```python
+import mne
+import os
+import numpy as np
+
+from mne.viz._figure import use_browser_backend
+
+sample_data_folder = mne.datasets.sample.data_path()
+sample_data_raw_file = os.path.join(sample_data_folder, 'MEG', 'sample',
+                                    'sample_audvis_raw.fif')
+raw = mne.io.read_raw(sample_data_raw_file)
+
+with use_browser_backend('pyqtgraph'):
+    annot = raw.annotations
+    annot.onset = np.arange(2, 8, 2) + raw.first_time
+    annot.duration = np.repeat(1, len(annot.onset))
+    annot.description = np.asarray(['Test1', 'Test2', 'Test3'])
+
+    raw.plot(block=True)
+```
