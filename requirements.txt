@@ -6,6 +6,7 @@ matplotlib
 PyQt5
 qtpy
 git+https://github.com/pyqtgraph/pyqtgraph@master
+pytest-qt
 pyopengl  # optional, but recommended for higher performance
 
 # requirements for other prototypes
