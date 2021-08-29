@@ -1,6 +1,8 @@
 import functools
 import inspect
 import os
+import sys
+import traceback
 from ast import literal_eval
 from copy import deepcopy
 from functools import partial
@@ -249,6 +251,13 @@ class ResultDialog(QDialog):
 
         self.setLayout(layout)
 
+def _show_error_msg(parent):
+    exctype, value = sys.exc_info()[:2]
+    traceback_str = traceback.format_exc(limit=-5)
+    traceback.print_exc()
+    QMessageBox.information(parent, 'Error!',
+                            f'{exctype}: {value}\n'
+                            f'{traceback_str}')
 
 class FakeClickDialog(QDialog):
     def __init__(self, parent_widget):
@@ -302,8 +311,42 @@ class FakeClickDialog(QDialog):
         button_text = self.button_cmbx.currentText()
         button = 1 if button_text == 'left' else 3
         kind = self.kind_cmbx.currentText()
-        self.pw.backend._fake_click((x, y), ax=target, button=button,
-                                   xform=trans, kind=kind)
+        try:
+            self.pw.backend._fake_click((x, y), ax=target, button=button,
+                                       xform=trans, kind=kind)
+        except:
+            _show_error_msg(self)
+
+
+class FakeKeyPressDialog(QDialog):
+    def __init__(self, parent_widget):
+        super().__init__(parent_widget)
+        self.pw = parent_widget
+
+        self.init_ui()
+        self.show()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        layout.addWidget(QLabel('Enter key-name to press:'))
+
+        self.key_input = QLineEdit()
+        layout.addWidget(self.key_input)
+
+        press_bt = QPushButton('Press')
+        press_bt.clicked.connect(self.press_key)
+        layout.addWidget(press_bt)
+
+        self.setLayout(layout)
+
+    def press_key(self):
+        key_name = self.key_input.text()
+        if key_name:
+            try:
+                self.pw.backend._fake_keypress(key_name)
+            except:
+                _show_error_msg(self)
 
 
 class BenchmarkWindow(QMainWindow):
@@ -572,6 +615,10 @@ class BenchmarkWindow(QMainWindow):
         afake_clickdlg = QAction('Fake Click', parent=self)
         afake_clickdlg.triggered.connect(partial(FakeClickDialog, self))
         self.toolbar.addAction(afake_clickdlg)
+
+        afake_keypress = QAction('Fake KeyPress', parent=self)
+        afake_keypress.triggered.connect(partial(FakeKeyPressDialog, self))
+        self.toolbar.addAction(afake_keypress)
 
     def open_file(self):
         file_path = QFileDialog.getOpenFileName(self,
