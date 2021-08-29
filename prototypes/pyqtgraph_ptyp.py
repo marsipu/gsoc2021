@@ -1,3 +1,8 @@
+"""
+THIS VERSION IS DEPRECATED, THE PYQTGRAPH-BACKEND IS CONTINUED TO BE DEVELOPED
+IN MNE-PYTHON (currently https://github.com/mne-tools/mne-python/pull/9687)
+"""
+
 import datetime
 import math
 import platform
