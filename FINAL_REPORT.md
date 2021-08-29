@@ -7,11 +7,11 @@ The aim of this [project](https://blogs.python-gsoc.org/media/proposals/GSoC2021
 of 2D-Data in the data-browser of MNE-Python. The current backend matplotlib sets
 limits in performance, the addition of features and a native 
 appearance. A new backend on the base of [(Py)Qt](https://riverbankcomputing.com/software/pyqt/intro) was supposed to improve the 
-data-browser in regard of the afformentioned aspects.
+data-browser in regard of the aforementioned aspects.
 
 #### Backend-Selection
 At the beginning of the project, I experimented with several prototypes supplied
-by the mentors and compared peformance and accessibility (from a developers 
+by the mentors and compared peformance and accessibility (from a developers' 
 perspective) of multiple backends, including [pyqtgraph](https://github.com/pyqtgraph/pyqtgraph),
 [pyqwt](https://github.com/PyQwt/PyQwt), (custom) pyqt,
 [vispy](https://github.com/vispy/vispy) and [vtk](https://vtk.org/). 
@@ -31,8 +31,8 @@ the features the matplotlib-backend provides:
 - browsing through 2-dimensional data horizontally and vertically
 - increase/decrease shown duration and number of channels
 - time on x-axis, channel-names on y-axis
-- datetime on x-axis (which [I have implemented for matplotlib](https://github.com/mne-tools/mne-python/pull/9419) before)
-- mark bad-channels (click trace of ch-name)
+- datetime on x-axis (which [I had implemented for matplotlib](https://github.com/mne-tools/mne-python/pull/9419) before)
+- mark bad-channels (click trace or ch-name)
 - add/remove/edit annotations
 - keyboard-shortcuts
 - vertical line
@@ -56,17 +56,19 @@ for ways to improve performance. One I found was the usage of OpenGL with pyopen
 Connected to this feature was a bug I found where an antialiasing-parameter
 wasn't passed to PlotCurveItems which I fixed in this [PR](https://github.com/pyqtgraph/pyqtgraph/pull/1932).
 Another performance increase could be achieved by preloading the data. This would
-normally scale startup time with the file-size, but to prevent thisI implemented the
-(pythonic) parallel loading in a separate thread to keep startup-time low.
+normally scale startup time with the file-size, but to prevent this I implemented
+loading in a separate thread to keep startup-time low. To compare an visualize
+the effect of different parameters on the performance, I created a wrapping benchmark-utility
+in this repository.
 
-- creation of a benchmark-utility to compare and visualize the effect of different performance inflicting parameters.
+- creation of a benchmark-utility
 - optimized drawing and update of RawTraceItems
 - downsampling (customized methods originally from pyqtgraph)
 - usage of OpenGL (implemented with pyopengl by pyqtgraph)
 - preloading of data (in a separate thread to reduce startup-time)
 
 #### Refactoring of MPL-Backend and Tests
-Following my mentors advice I started early with refactoring the matplotlib-backend
+Following my mentors' advice I started early with refactoring the matplotlib-backend
 to facilitate the later side-by-side integration of matplotlib and pyqtgraph.
 I refactored all methods from the matplotlib-backend which were backend-independent
 into a new Base-Class for both backends called `BrowserBase`.
@@ -79,7 +81,7 @@ A [PR](https://github.com/mne-tools/mne-python/pull/9596) containing these chang
 #### Adaption of pyqtgraph-browser to BrowserBase and Tests
 Since for the first half of GSoC I have worked with a pyqtgraph-browser-prototype
 with rudimentary data-loading and -processing, the adaption of this rudimentary
-structure to the full framework the then refactored BrowserBase provided was 
+structure to the full framework from BrowserBase was 
 another big task. Furthermore, the aforementioned abstract methods for testing
 had to be provided for the pyqtgraph-backend.
 
@@ -101,19 +103,19 @@ To follow my development process in retrospective, you can look at the daily [ch
 and the [weekly blogs](https://blogs.python-gsoc.org/en/marsipus-blog/) I wrote.
 
 #### Run the new backend
-To test the functionality of the new backend, you need to install the following requirments via pip in a python environment:
+To test the functionality of the new backend, you need to install the following requirements via pip in a python environment:
 ```
+mne (fork the branch from the [WIP-PR](https://github.com/mne-tools/mne-python/pull/9687))
 numpy
 scipy
 matplotlib
-mne (fork the branch from the [WIP-PR](https://github.com/mne-tools/mne-python/pull/9687))
 PyQt5
 qtpy
 git+https://github.com/pyqtgraph/pyqtgraph@master
 pyopengl  # optional, but recommended for higher performance
 ```
 
-And to run, you can run the following example code:
+And to test functionality, you can run the following example code:
 ```python
 import mne
 import os
