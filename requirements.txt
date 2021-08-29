@@ -1,6 +1,13 @@
-# Add requirements not contained in standard MNE-Python-Installation
-# The newest development version fixes the openGL-issue on windows.
+# minimal requirements to run __main__.py
+mne (fork the branch from the [WIP-PR](https://github.com/mne-tools/mne-python/pull/9687))
+numpy
+scipy
+matplotlib
+PyQt5
+qtpy
 git+https://github.com/pyqtgraph/pyqtgraph@master
-pyopengl
+pyopengl  # optional, but recommended for higher performance
+
+# requirements for other prototypes
 vispy
 PythonQwt
