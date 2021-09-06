@@ -62,7 +62,9 @@ class KwargDialog(QDialog):
         super().__init__(parent_widget)
         self.pw = parent_widget
         layout = QVBoxLayout()
-        layout.addWidget(KwargEditor(self.pw.backend_kwargs))
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(KwargEditor(self.pw.backend_kwargs))
+        layout.addWidget(scroll_area)
         close_bt = QPushButton('Close')
         close_bt.clicked.connect(self.close)
         layout.addWidget(close_bt)
@@ -513,28 +515,32 @@ class BenchmarkWindow(QMainWindow):
         pre_time = time()
 
         if self.current_mode == 'ICA':
-            raw = self._load_raw()
-            self.backend = self.inst.plot_sources(raw, block=False,
-                                                  **self.backend_kwargs)
+            params = inspect.signature(self.inst.plot_sources).parameters
         else:
-            self.backend = self.inst.plot(block=False, show=False,
-                                          **self.backend_kwargs)
+            params = inspect.signature(self.inst.plot).parameters
+
+        # Remove kwargs (from other mode)
+        for rm_kwarg in [k for k in self.backend_kwargs if k not in params]:
+            self.backend_kwargs.pop(rm_kwarg)
+
+        # Add new kwargs
+        for add_kwarg in [k for k in params if k not in self.backend_kwargs]:
+            self.backend_kwargs[add_kwarg] = params[add_kwarg].default
+
+        # Need to be False to work in benchmark-window
+        self.backend_kwargs['block'] = False
+        self.backend_kwargs['show'] = False
+
+        if self.current_mode == 'ICA':
+            self.backend_kwargs['raw'] = self._load_raw()
+            self.backend = self.inst.plot_sources(**self.backend_kwargs)
+        else:
+            self.backend = self.inst.plot(**self.backend_kwargs)
 
         self.backend_startup_time = time() - pre_time
         self.startup_status.setText(f'Startup: '
                                     f'{self.backend_startup_time:.3f} s')
         self.fps_status.setText('')
-        # Get backend parameters (all parameters with default-value)
-        if hasattr(self.backend, 'pg_kwarg_defaults'):
-            backend_defaults = self.backend.pg_kwarg_defaults
-        else:
-            backend_defaults = dict()
-        # Load backend_kwargs from Benchmark-Class if available
-        if self.backend_kwargs:
-            backend_defaults = {
-                k: self.backend_kwargs[k] if k in self.backend_kwargs
-                else backend_defaults[k] for k in backend_defaults}
-        self.backend_kwargs = backend_defaults
 
         if self.current_backend == 'matplotlib':
             canvas = FigureCanvasQTAgg(self.backend)
