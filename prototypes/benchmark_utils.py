@@ -62,9 +62,7 @@ class KwargDialog(QDialog):
         super().__init__(parent_widget)
         self.pw = parent_widget
         layout = QVBoxLayout()
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(KwargEditor(self.pw.backend_kwargs))
-        layout.addWidget(scroll_area)
+        layout.addWidget(KwargEditor(self.pw.backend_kwargs))
         close_bt = QPushButton('Close')
         close_bt.clicked.connect(self.close)
         layout.addWidget(close_bt)
@@ -88,12 +86,16 @@ class KwargEditor(QWidget):
         self.kd[param_name] = text
 
     def init_ui(self):
-        layout = QGridLayout()
+        layout = QVBoxLayout()
+        widget = QWidget()
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(widget)
+        grid_layout = QGridLayout()
         # Only choose kwargs with default
         for row_idx, param in enumerate(self.kd):
             param_label = QLabel(param)
             param_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
-            layout.addWidget(param_label, row_idx, 0)
+            grid_layout.addWidget(param_label, row_idx, 0)
 
             # Load parameter from backend_kwargs-dictionary
             default = self.kd[param]
@@ -102,8 +104,10 @@ class KwargEditor(QWidget):
             param_widget.textchange.connect(
                 partial(self.param_changed, param_name=param))
             self.pw_dict[param] = param_widget
-            layout.addWidget(param_widget, row_idx, 1)
+            grid_layout.addWidget(param_widget, row_idx, 1)
 
+        widget.setLayout(grid_layout)
+        layout.addWidget(scroll_area)
         self.setLayout(layout)
 
     def update_params(self):
