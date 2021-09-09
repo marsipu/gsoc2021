@@ -41,12 +41,13 @@ class EvalParam(QLineEdit):
     def text(self):
         text = super().text()
         try:
-            value = literal_eval(text)
-        except ValueError:
-            value = text
-        except SyntaxError:
+            value = eval(text)
+        except:
+            exctype, value = sys.exc_info()[:2]
             QMessageBox.warning(self.parent(), 'Evaluation-Error',
-                                f'"{text}" could not be evaluated!')
+                                f'"{text}" could not be evaluated '
+                                f'because of:\n'
+                                f'{exctype}: {value}!')
             self.setText('')
             value = None
         return value
