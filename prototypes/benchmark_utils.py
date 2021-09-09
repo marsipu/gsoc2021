@@ -89,7 +89,6 @@ class KwargEditor(QWidget):
         layout = QVBoxLayout()
         widget = QWidget()
         scroll_area = QScrollArea()
-        scroll_area.setWidget(widget)
         grid_layout = QGridLayout()
         # Only choose kwargs with default
         for row_idx, param in enumerate(self.kd):
@@ -107,6 +106,7 @@ class KwargEditor(QWidget):
             grid_layout.addWidget(param_widget, row_idx, 1)
 
         widget.setLayout(grid_layout)
+        scroll_area.setWidget(widget)
         layout.addWidget(scroll_area)
         self.setLayout(layout)
 
