@@ -258,6 +258,7 @@ class ResultDialog(QDialog):
 
         self.setLayout(layout)
 
+
 def _show_error_msg(parent):
     exctype, value = sys.exc_info()[:2]
     traceback_str = traceback.format_exc(limit=-5)
@@ -265,6 +266,7 @@ def _show_error_msg(parent):
     QMessageBox.information(parent, 'Error!',
                             f'{exctype}: {value}\n'
                             f'{traceback_str}')
+
 
 class FakeClickDialog(QDialog):
     def __init__(self, parent_widget):
@@ -283,8 +285,14 @@ class FakeClickDialog(QDialog):
         self.xbox.setMaximum(1e6)
         bx_layout.addRow('X:', self.xbox)
         self.ybox = QDoubleSpinBox()
-        self.xbox.setMaximum(1e6)
+        self.ybox.setMaximum(1e6)
         bx_layout.addRow('Y:', self.ybox)
+        self.xbox2 = QDoubleSpinBox()
+        self.xbox2.setMaximum(1e6)
+        bx_layout.addRow('X2:', self.xbox2)
+        self.ybox2 = QDoubleSpinBox()
+        self.ybox2.setMaximum(1e6)
+        bx_layout.addRow('Y2:', self.ybox2)
         self.button_cmbx = QComboBox()
         self.button_cmbx.addItems(['left', 'right'])
         self.button_cmbx.setCurrentIndex(0)
@@ -298,7 +306,7 @@ class FakeClickDialog(QDialog):
         self.target_cmbx.setCurrentIndex(0)
         bx_layout.addRow('Target:', self.target_cmbx)
         self.kind_cmbx = QComboBox()
-        self.kind_cmbx.addItems(['press', 'release', 'motion'])
+        self.kind_cmbx.addItems(['press', 'release', 'motion', 'drag'])
         self.kind_cmbx.setCurrentIndex(0)
         bx_layout.addRow('Kind:', self.kind_cmbx)
         params_bx.setLayout(bx_layout)
@@ -313,14 +321,18 @@ class FakeClickDialog(QDialog):
     def make_fake_click(self):
         x = self.xbox.value()
         y = self.ybox.value()
+        x2 = self.xbox2.value()
+        y2 = self.ybox2.value()
         trans = self.xform_cmbx.currentText()
         target = getattr(self.pw.backend.mne, self.target_cmbx.currentText())
         button_text = self.button_cmbx.currentText()
         button = 1 if button_text == 'left' else 3
         kind = self.kind_cmbx.currentText()
+        point2 = (x2, y2) if kind == 'drag' else None
         try:
-            self.pw.backend._fake_click((x, y), ax=target, button=button,
-                                       xform=trans, kind=kind)
+            self.pw.backend._fake_click((x, y), point2=point2,
+                                        ax=target, button=button,
+                                        xform=trans, kind=kind)
         except:
             _show_error_msg(self)
 
@@ -515,7 +527,7 @@ class BenchmarkWindow(QMainWindow):
             self.inst = self._load_epochs()
         else:
             self.inst = self._load_ica()
-        
+
         set_browser_backend(self.current_backend)
         pre_time = time()
 
