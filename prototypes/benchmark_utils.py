@@ -1,9 +1,9 @@
 import functools
+import gc
 import inspect
 import os
 import sys
 import traceback
-from ast import literal_eval
 from copy import deepcopy
 from functools import partial
 from itertools import cycle
@@ -22,8 +22,8 @@ from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog,
 from mne.preprocessing import ICA
 from mne.viz._figure import set_browser_backend
 from mne.viz.utils import _get_color_list
-from pyqtgraph import PlotDataItem, PlotWidget, mkPen, time, BarGraphItem, \
-    mkBrush, GroupBox
+from pyqtgraph import (PlotDataItem, PlotWidget, mkPen, time,
+                       BarGraphItem, mkBrush)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
 
@@ -40,17 +40,22 @@ class EvalParam(QLineEdit):
 
     def text(self):
         text = super().text()
-        try:
-            value = eval(text)
-        except:
-            exctype, value = sys.exc_info()[:2]
-            QMessageBox.warning(self.parent(), 'Evaluation-Error',
-                                f'"{text}" could not be evaluated '
-                                f'because of:\n'
-                                f'{exctype}: {value}!')
-            self.setText('')
+        if text == '':
             value = None
-        return value
+        else:
+            try:
+                value = eval(text)
+            except NameError:
+                value = text
+            except:
+                exctype, value = sys.exc_info()[:2]
+                QMessageBox.warning(self.parent(), 'Evaluation-Error',
+                                    f'"{text}" could not be evaluated '
+                                    f'because of:\n'
+                                    f'{exctype}: {value}!')
+                self.setText('')
+                value = None
+            return value
 
     def setText(self, value):
         if not isinstance(value, str):
@@ -513,6 +518,8 @@ class BenchmarkWindow(QMainWindow):
             widget = self.takeCentralWidget()
             widget.deleteLater()
             del self.backend
+
+        gc.collect()
 
         # Reset Benchmark-Attributes
         self.hscroll_dir = True
