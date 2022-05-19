@@ -8,6 +8,8 @@ It contains the code for my first prototypes and a [changelog](./CHANGELOG.md) t
 
 If you have ideas/suggestions about the project or would like to get in touch, you are welcome to use the [issues-section](https://github.com/marsipu/gsoc2021/issues) of this repository.
 
+The code of this project was transitioned to [mne-tools/mne-qt-browser](https://github.com/mne-tools/mne-qt-browser)
+
 ## Running the prototype
 
 You can try the current prototype in the branch `pre_integration` by running:
